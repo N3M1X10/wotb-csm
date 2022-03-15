@@ -1,4 +1,6 @@
-Актуально на момент версии 1.7
+### Актуально на момент версии 1.7
+
+Скачать WoTB CSM: https://github.com/NEMIX10/WoTB-Cluster-Settings-Menu/releases
 
 WoTB CSM - Файл помощи
 
