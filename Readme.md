@@ -1,6 +1,8 @@
+этот файл можно открыть в программе по команде "help" / "h"
+
 WoTB CSM - Файл помощи
 
-Скачать WoTB CSM: https://github.com/NEMIX10/WoTB-Cluster-Settings-Menu/releases
+Скачать WoTB CSM: https://github.com/N3M1X10/WoTB-Cluster-Settings-Menu/releases
 
 WoTB CSM - Файл помощи
 
