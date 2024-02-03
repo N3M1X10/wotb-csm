@@ -7,13 +7,13 @@
 ![](https://repository-images.githubusercontent.com/470124242/8a45d49c-74da-4a70-a190-03046d1691ea)
 
 ------------------------
+### [Скачать WoTB CSM](https://github.com/N3M1X10/WoTB-Cluster-Settings-Menu/releases)
+### [Руководство по Программе для проверки кластеров](https://github.com/N3M1X10/WoTB-Cluster-Settings-Menu/blob/main/Entire%20Cluster%20Checker.md)
+------------------------
 WoTB CSM - Файл помощи
 
 Актуально на момент версии 2.0.8
 
-------------------------
-### [Скачать WoTB CSM](https://github.com/N3M1X10/WoTB-Cluster-Settings-Menu/releases)
-### [Руководство по Программе для проверки кластеров](https://github.com/N3M1X10/WoTB-Cluster-Settings-Menu/blob/main/Entire%20Cluster%20Checker.md)
 ------------------------
 
 ### Краткое описание программы
