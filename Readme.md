@@ -6,7 +6,7 @@
 
 WoTB CSM - Файл помощи
 
-### Актуально на момент версии 2.0.7
+### Актуально на момент версии 2.0.8
 ------------------------
 ### [Скачать WoTB CSM](https://github.com/N3M1X10/WoTB-Cluster-Settings-Menu/releases)
 ### [Руководство по Программе для проверки кластеров](https://github.com/N3M1X10/WoTB-Cluster-Settings-Menu/blob/main/Entire%20Cluster%20Checker.md)
