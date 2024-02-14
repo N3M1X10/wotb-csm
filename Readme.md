@@ -5,6 +5,9 @@
 - 06.01.24 Автор инструмента вернулся, проект вновь ожил :)
 
 ![](https://repository-images.githubusercontent.com/470124242/8a45d49c-74da-4a70-a190-03046d1691ea)
+### Окно программы
+![](https://github.com/N3M1X10/WoTB-Cluster-Settings-Menu/assets/48549372/c44d79ac-b9fe-4b6a-a6f9-45b4a8897f7c)
+
 
 ------------------------
 ### [Скачать WoTB CSM](https://github.com/N3M1X10/WoTB-Cluster-Settings-Menu/releases)
