@@ -1,12 +1,11 @@
 ### Приветствуем тебя дружище! Это WoTB CSM ;)
-- Рекомендуется прочитать инструкции по работе программы [ниже](https://github.com/N3M1X10/WoTB-Cluster-Settings-Menu?tab=readme-ov-file#%D0%BF%D0%B5%D1%80%D0%B2%D1%8B%D0%BC-%D0%B4%D0%B5%D0%BB%D0%BE%D0%BC)
-- Файл с инструкциями можно открыть в программе по команде "help" / "h"
-- `06.01.24` Автор инструмента вернулся, проект вновь ожил :)
-- `04.02.25` wotb-csm теперь open-source, автору сильно плохо от того - что он делал в коде когда был по-моложе.
+- Рекомендуется прочитать инструкции по работе программы ниже!
+- `04.02.25` wotb-csm теперь open-source, и автору сильно плохо от того - что он писад в коде, когда был по-моложе
 
 ![](https://repository-images.githubusercontent.com/470124242/8a45d49c-74da-4a70-a190-03046d1691ea)
 ### Окно программы
-![](https://github.com/N3M1X10/WoTB-Cluster-Settings-Menu/assets/48549372/c44d79ac-b9fe-4b6a-a6f9-45b4a8897f7c)
+![image](https://github.com/user-attachments/assets/b91411bd-c0d7-43c0-a7b6-26af94945038)
+
 
 ### [Руководство по пакету для проверки кластеров](https://github.com/N3M1X10/WoTB-Cluster-Settings-Menu/blob/main/cluster-checker-guide.md)
 
