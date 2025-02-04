@@ -13,24 +13,24 @@ setlocal
 echo [101;93mМеню настройки кластеров СНГ сервера Tanks Blitz[0m
 echo [33m Выберите команду:[0m
 echo [96m[   ^<команда^> ^| ^<описание^>              ][0m
-echo [96m[ b0 / block0 - Блокировать RU_C0       ][0m
-echo [96m[ b1 / block1 - Блокировать RU_C1       ][0m
-echo [96m[ b2 / block2 - Блокировать RU_C2       ][0m
-echo [96m[ b3 / block3 - Блокировать RU_C3       ][0m
-echo [96m[ b4 / block4 - Блокировать RU_C4       ][0m
-echo [96m[ b5 / block5 - Блокировать RU_C5       ][0m
-echo [96m[ ub0 / unblock0 - Разблокировать RU_C0 ][0m
-echo [96m[ ub1 / unblock1 - Разблокировать RU_C1 ][0m
-echo [96m[ ub2 / unblock2 - Разблокировать RU_C2 ][0m
-echo [96m[ ub3 / unblock3 - Разблокировать RU_C3 ][0m
-echo [96m[ ub4 / unblock4 - Разблокировать RU_C4 ][0m
-echo [96m[ ub5 / unblock5 - Разблокировать RU_C5 ][0m
+echo [96m[ b0 - Блокировать RU_C0       ][0m
+echo [96m[ b1 - Блокировать RU_C1       ][0m
+echo [96m[ b2 - Блокировать RU_C2       ][0m
+echo [96m[ b3 - Блокировать RU_C3       ][0m
+echo [96m[ b4 - Блокировать RU_C4       ][0m
+echo [96m[ b5 - Блокировать RU_C5       ][0m
+echo [96m[ ub0 - Разблокировать RU_C0 ][0m
+echo [96m[ ub1 - Разблокировать RU_C1 ][0m
+echo [96m[ ub2 - Разблокировать RU_C2 ][0m
+echo [96m[ ub3 - Разблокировать RU_C3 ][0m
+echo [96m[ ub4 - Разблокировать RU_C4 ][0m
+echo [96m[ ub5 - Разблокировать RU_C5 ][0m
 echo [33m Другие опции:[0m
 echo [96m[     ^<команда^> ^| ^<описание^>                                         ][0m
 echo [96m[ c / create    - Создать правила для контролирования кластеров      ][0m
 echo [96m[ del / delete  - Удалить все правила для контролирования кластеров  ][0m
-echo [96m[ b / block / block-all      - Заблокировать все кластера            ][0m
-echo [96m[ ub / unblock / unblock-all - Разблокировать все кластера           ][0m
+echo [96m[ b / block     - Заблокировать все кластера                         ][0m
+echo [96m[ ub / unblock  - Разблокировать все кластера                        ][0m
 echo [96m[ сс / check    - Открыть батник для проверки связи с кластерами     ][0m
 echo [96m[ wf / firewall - Открыть монитор Брандмауэра (Windows Firewall)     ][0m
 echo [96m[ add / rem     - Добавить/Удалить в иключения Windows Firewall      ][0m
@@ -63,16 +63,9 @@ if "%a%"=="del"    goto rules-del
 if "%a%"=="delete" goto rules-del
 
 ::blockers trackers
-if "%a%"=="block"     goto block-all
-if "%a%"=="block-all" goto block-all
-if "%a%"=="b"         goto block-all
+if "%a%"=="block" goto block-all
+if "%a%"=="b"     goto block-all
 
-if "%a%"=="block0" goto block0
-if "%a%"=="block1" goto block1
-if "%a%"=="block2" goto block2
-if "%a%"=="block3" goto block3
-if "%a%"=="block4" goto block4
-if "%a%"=="block5" goto block5
 if "%a%"=="b0"     goto block0
 if "%a%"=="b1"     goto block1
 if "%a%"=="b2"     goto block2
@@ -81,16 +74,9 @@ if "%a%"=="b4"     goto block4
 if "%a%"=="b5"     goto block5
 
 ::unblockers trackers
-if "%a%"=="unblock"     goto unblock-all
-if "%a%"=="unblock-all" goto unblock-all
-if "%a%"=="ub"          goto unblock-all
+if "%a%"=="unblock" goto unblock-all
+if "%a%"=="ub"      goto unblock-all
 
-if "%a%"=="unblock0" goto unblock0
-if "%a%"=="unblock1" goto unblock1
-if "%a%"=="unblock2" goto unblock2
-if "%a%"=="unblock3" goto unblock3
-if "%a%"=="unblock4" goto unblock4
-if "%a%"=="unblock5" goto unblock5
 if "%a%"=="ub0"      goto unblock0
 if "%a%"=="ub1"      goto unblock1
 if "%a%"=="ub2"      goto unblock2
