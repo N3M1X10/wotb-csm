@@ -31,12 +31,10 @@ echo [96m[ c / create    - Создать правила для контрол�
 echo [96m[ del / delete  - Удалить все правила для контролирования кластеров  ][0m
 echo [96m[ b / block / block-all      - Заблокировать все кластера            ][0m
 echo [96m[ ub / unblock / unblock-all - Разблокировать все кластера           ][0m
-echo [96m[ h / help                   - Открыть файл помощи                   ][0m
 echo [96m[ сс / check    - Открыть батник для проверки связи с кластерами     ][0m
 echo [96m[ wf / firewall - Открыть монитор Брандмауэра (Windows Firewall)     ][0m
-echo [96m[ a / add       - Добавить программу в исключения Windows Firewall   ][0m
-echo [96m[ rem / remove  - Убрать из исключений Windows Firewall              ][0m
-echo [96m[ git / update  - Перейти на страницу GitHub с обновлениями программ ][0m
+echo [96m[ add / rem     - Добавить/Удалить в иключения Windows Firewall      ][0m
+echo [96m[ h / github    - Перейти на страницу GitHub                         ][0m
 echo [96m[ r / restart   - [33mПерезапустить программу внутри этого окна[0m [96m         ][0m
 echo [96m[ x / close     -[0m [31mЗавершить работу [0m[96m                                  ][0m[0m
 
@@ -118,30 +116,24 @@ if "%a%"=="END"   goto end
 if "%a%"=="r"       goto restart
 if "%a%"=="restart" goto restart
 
-::   show help-file.txt
-if "%a%"=="h"      goto help
-if "%a%"=="help"   goto help
-if "%a%"=="readme" goto help
+:: open github
+if "%a%"=="h"      goto github
+if "%a%"=="help"   goto github
+if "%a%"=="update" goto github
+if "%a%"=="github" goto github
+if "%a%"=="git"    goto github
 
 ::   open cluster checker
 if "%a%"=="cc"    goto openclusterchecker
 if "%a%"=="check" goto openclusterchecker
 
-if "%a%"=="update" goto github
-if "%a%"=="github" goto github
-if "%a%"=="git"    goto github
-
 ::   open Windows Firewall
 if "%a%"=="wf"               goto :wf
 if "%a%"=="firewall"         goto :wf
 
-
 ::ADD-PROGRAM-TO-EXCLUSIONS tool
 if "%a%"=="add" goto addtoexclusions
-if "%a%"=="a"   goto addtoexclusions
-
 if "%a%"=="rem"    goto removefromexclusions
-if "%a%"=="remove" goto removefromexclusions
 
 ::	Если команда пустая
 if "%a%"=="" goto command-missing
@@ -416,39 +408,11 @@ echo [92mКластер [96mRU_C5[92m Разблокирован![0m
 echo.
 goto func
 
-
-
-::other commands
-:help
-Echo.
-Echo [33m Запуск...[0m
-rem cd /d readme
-start "" ""
-IF %ERRORLEVEL% NEQ 0 (
-Echo [31mНе удаётся открыть файл[0m
-echo.
-goto func
-)
-Echo [92m Запущен![0m
-Echo.
-goto func
-
 :restart
 endlocal
 cls
 cmd /c "%~f0" :
 exit
-
-:wotbcc
-Echo [33m[      Запуск %wotbcc% ...      ][0m
-start "" "%wotbcc%"
-IF %ERRORLEVEL% NEQ 0 (
-Echo [31m[ Не удаётся запустить %wotbcc% ][0m
-echo.
-goto func
-)
-Echo [92m[       %wotbcc% Запущен!       ][0m
-goto func
 
 :wf
 Echo [33m[      Запуск Windows Firewall ...      ][0m
@@ -457,16 +421,18 @@ Echo [92m[       Windows Firewall Запущен!       ][0m
 goto func
 
 :github
-echo [33m[         Переход в github.com . . .         ][0m
+echo [96m ! github
 explorer "https://github.com/N3M1X10/wotb-csm"
-echo [92m[         Ссылка на github открыта!          ][0m
 goto func
-
 
 ::ADD TO EXCLUSIONS TOOL::
 :addtoexclusions
 powershell Add-MpPreference -ExclusionProcess "%~xn0"
-echo [96m%~xn0[92m добавлен в исключения Windows Defender!
+if %ERRORLEVEL% neq 0 (
+echo [31mОшибка[0m
+) else (
+echo [96m%~xn0[92m добавлен в исключения Windows Defender![0m
+)
 goto func
 
 :removefromexclusions
