@@ -48,6 +48,5 @@
 
 
 ## Обратная связь
-Если нашли баги - за помощью обратитесь к владельцу дискорд-сервера.
-Чтобы попасть на наш дискорд сервер:
-В консоли программы введите команду "dc" или "discord" без кавычек. Или по ссылке: https://discord.gg/2jJ3Qn4
+- [issues](https://github.com/N3M1X10/WoTB-Cluster-Settings-Menu/issues)
+- [Discord](https://discord.gg/2jJ3Qn4)
