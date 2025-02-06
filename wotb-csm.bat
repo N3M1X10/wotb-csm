@@ -1,6 +1,8 @@
 @echo off
 chcp 65001>nul
 
+:: Source: https://github.com/N3M1X10/wotb-csm
+
 set "arg=%1"
 if "%arg%" == "admin" (
 title wotb-csm (admin^)
@@ -32,10 +34,10 @@ echo [96m[ del / delete  - Удалить все правила для конт
 echo [96m[ b / block     - Заблокировать все кластера                         ][0m
 echo [96m[ ub / unblock  - Разблокировать все кластера                        ][0m
 echo [96m[ сс / check    - Открыть батник для проверки связи с кластерами     ][0m
-echo [96m[ wf / firewall - Открыть монитор Брандмауэра (Windows Firewall)     ][0m
-echo [96m[ add / rem     - Добавить/Удалить в иключения Windows Firewall      ][0m
-echo [96m[ h / github    - Перейти на страницу GitHub                         ][0m
-echo [96m[ r / restart   - [33mПерезапустить программу внутри этого окна[0m [96m         ][0m
+echo [96m[ wf / firewall - Открыть монитор Windows Defender     ][0m
+echo [96m[ add / rem     - Добавить/Удалить в иключения Windows Defender      ][0m
+echo [96m[ h / help      - Перейти на страницу GitHub                         ][0m
+echo [96m[ r / restart   - [33mПерезапустить этот пакет[0m [96m                          ][0m
 echo [96m[ x / close     -[0m [31mЗавершить работу [0m[96m                                  ][0m[0m
 
 ::
@@ -87,16 +89,8 @@ if "%a%"=="ub5"      goto unblock5
 ::controls trackers
 ::             close program
 if "%a%"=="x"     goto end
-if "%a%"=="X"     goto end
-if "%a%"=="exit"  goto end
-if "%a%"=="Exit"  goto end
-if "%a%"=="EXIT"  goto end
 if "%a%"=="close" goto end
-if "%a%"=="Close" goto end
-if "%a%"=="CLOSE" goto end
 if "%a%"=="end"   goto end
-if "%a%"=="End"   goto end
-if "%a%"=="END"   goto end
 
 ::   restart program inside this window
 if "%a%"=="r"       goto restart
@@ -105,9 +99,6 @@ if "%a%"=="restart" goto restart
 :: open github
 if "%a%"=="h"      goto github
 if "%a%"=="help"   goto github
-if "%a%"=="update" goto github
-if "%a%"=="github" goto github
-if "%a%"=="git"    goto github
 
 ::   open cluster checker
 if "%a%"=="cc"    goto openclusterchecker
@@ -396,7 +387,6 @@ goto func
 
 :restart
 endlocal
-cls
 cmd /c "%~f0" :
 exit
 
@@ -428,14 +418,13 @@ goto func
 
 :openclusterchecker
 set checkername=cluster-checker.bat
-Echo [33m[      Запуск [96m%checkername%[33m ...      ][0m
 start "" "%checkername%"
 IF %ERRORLEVEL% NEQ 0 (
-Echo [31m[ Не удаётся запустить [96m%checkername%[31m ][0m
+echo [31m[ Не удаётся запустить [96m%checkername%[31m ][0m
 echo.
 goto func
 )
-Echo [92m[       [96m%checkername%[92m Запущен!       ][0m
+echo [96m! %checkername%[0m
 goto func
 
 :end
