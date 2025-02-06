@@ -1,4 +1,6 @@
-![](https://repository-images.githubusercontent.com/470124242/8a45d49c-74da-4a70-a190-03046d1691ea)
+![github-wotb-csm-poster-v3](https://github.com/user-attachments/assets/03af48fc-1760-4f26-beed-bc216d6d68ce)
+
+
 
 > [!caution]
 > **Рекомендуется прочитать инструкции ниже!**
