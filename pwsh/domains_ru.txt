@@ -1,0 +1,6 @@
+login0.tanksblitz.ru
+login1.tanksblitz.ru
+login2.tanksblitz.ru
+login3.tanksblitz.ru
+login4.tanksblitz.ru
+login5.tanksblitz.ru

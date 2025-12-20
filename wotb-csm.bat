@@ -11,88 +11,59 @@ title wotb-csm (admin^)
     exit /b
 )
 
-setlocal
+:ask
+setlocal EnableDelayedExpansion
+
+set pls-enter-comm=[31m[ Пожалуйста, введите команду ][0m
+set incorrect-command=[31m[ Некорректная команда ][0m
+set rule-n-f=[31m[ОШИБКА]: Правило кластера не найдено, пожалуйста введите: "c" или "create"[0m
+set clasters-rls-nf=[31m[ОШИБКА]: Правила кластеров не найдены, пожалуйста введите: "c" или "create"[0m
+
+cls
 echo [101;93mМеню настройки кластеров СНГ сервера Tanks Blitz[0m
-echo [33mВыберите команду:[0m
-echo [96m[   ^<команда^> ^| ^<описание^>   ][0m
-echo [96m[ b0 - Блокировать RU_C0     ][0m
-echo [96m[ b1 - Блокировать RU_C1     ][0m
-echo [96m[ b2 - Блокировать RU_C2     ][0m
-echo [96m[ b3 - Блокировать RU_C3     ][0m
-echo [96m[ b4 - Блокировать RU_C4     ][0m
-echo [96m[ b5 - Блокировать RU_C5     ][0m
-echo [96m[ ub0 - Разблокировать RU_C0 ][0m
-echo [96m[ ub1 - Разблокировать RU_C1 ][0m
-echo [96m[ ub2 - Разблокировать RU_C2 ][0m
-echo [96m[ ub3 - Разблокировать RU_C3 ][0m
-echo [96m[ ub4 - Разблокировать RU_C4 ][0m
-echo [96m[ ub5 - Разблокировать RU_C5 ][0m
-echo [33mДругие опции:[0m
-echo [96m[     ^<команда^> ^| ^<описание^>                                         ][0m
-echo [96m[ c / create    - Создать правила для контролирования кластеров      ][0m
-echo [96m[ del / delete  - Удалить все правила для контролирования кластеров  ][0m
-echo [96m[ b / block     - Заблокировать все кластера                         ][0m
-echo [96m[ ub / unblock  - Разблокировать все кластера                        ][0m
-echo [96m[ сс / check    - Открыть батник для проверки связи с кластерами     ][0m
-echo [96m[ wf / firewall - Открыть монитор Windows Defender     ][0m
-echo [96m[ add / rem     - Добавить/Удалить в иключения Windows Defender      ][0m
-echo [96m[ h / help      - Перейти на страницу GitHub                         ][0m
-echo [96m[ r / restart   - [33mПерезапустить этот пакет[0m [96m                          ][0m
-echo [96m[ x / close     -[0m [31mЗавершить работу [0m[96m                                  ][0m[0m
-
-::
-:: Options
-::
-
-set pls-enter-comm=[31m[      Пожалуйста, введите команду      ][0m
-set incorrect-command=[31m[   Некорректная команда   ][0m
-set clast-rls-nf=[31m[ ОШИБКА ]: Правило кластера не найдено, пожалуйста введите: "c" или "create"[0m
-set clasters-rls-nf=[31m[ ОШИБКА ]: Правила кластеров не найдены, пожалуйста введите: "c" или "create"[0m
-set usercommandcolor=[0m
+echo.
+echo [93mВыберите команду:[0m
+echo [96mb - открыть меню блокировки кластеров[0m
+echo [96mub - открыть меню разблокировки кластеров[0m
+echo.
+echo [96m1 - Создать / обновить правила для блокировки кластеров[0m
+echo [96m2 - Удалить все правила для блокировки кластеров[0m
+echo [96m3 - Обновить диапазоны ip-адресов для блокировки[0m
+echo.
+echo [96mba - Заблокировать все кластера[0m
+echo [96muba - Разблокировать все кластера[0m
+echo.
+echo [93mДругие опции:[0m
+echo [96mping - Проверить задержку до кластеров[0m
+echo [96mwf / firewall - Открыть монитор Windows Defender[0m
+echo [96mh / help - Перейти на страницу GitHub[0m
+echo.
+echo [96mr / restart - [93mПерезапустить этот пакет[0m
+echo [96mx / close -[0m [31mЗавершить работу[0m
 
 
-:func
 ::Вопрос от функции
-set /p a= "[92mВвод:%usercommandcolor% "
+echo.
+set /p a="[92mВвод:[0m "
 
-::            firewall builder
-if "%a%"=="create" goto create
-if "%a%"=="c"      goto create
+if "%a%"=="b" set act=block& goto cluster-manager
+if "%a%"=="ub" set act=unblock& goto cluster-manager
 
-if "%a%"=="e"      goto exclusions
+if "%a%"=="ba" goto block-all
+if "%a%"=="uba" goto unblock-all
 
-if "%a%"=="del"    goto rules-del
-if "%a%"=="delete" goto rules-del
+if "%a%"=="1" goto rules-create
+if "%a%"=="2" goto rules-delete
 
-::blockers trackers
-if "%a%"=="block" goto block-all
-if "%a%"=="b"     goto block-all
+if "%a%"=="ping" goto check-ping
+if "%a%"=="3" goto update-ipset
 
-if "%a%"=="b0"     goto block0
-if "%a%"=="b1"     goto block1
-if "%a%"=="b2"     goto block2
-if "%a%"=="b3"     goto block3
-if "%a%"=="b4"     goto block4
-if "%a%"=="b5"     goto block5
 
-::unblockers trackers
-if "%a%"=="unblock" goto unblock-all
-if "%a%"=="ub"      goto unblock-all
-
-if "%a%"=="ub0"      goto unblock0
-if "%a%"=="ub1"      goto unblock1
-if "%a%"=="ub2"      goto unblock2
-if "%a%"=="ub3"      goto unblock3
-if "%a%"=="ub4"      goto unblock4
-if "%a%"=="ub5"      goto unblock5
-
-::controls trackers
-::             close program
+::controls
 if "%a%"=="x"     goto end
 if "%a%"=="close" goto end
 if "%a%"=="end"   goto end
 
-::   restart program inside this window
 if "%a%"=="r"       goto restart
 if "%a%"=="restart" goto restart
 
@@ -100,333 +71,299 @@ if "%a%"=="restart" goto restart
 if "%a%"=="h"      goto github
 if "%a%"=="help"   goto github
 
-::   open cluster checker
-if "%a%"=="cc"    goto openclusterchecker
-if "%a%"=="check" goto openclusterchecker
-
 ::   open Windows Firewall
 if "%a%"=="wf"               goto :wf
 if "%a%"=="firewall"         goto :wf
 
 ::ADD-PROGRAM-TO-EXCLUSIONS tool
 if "%a%"=="add" goto addtoexclusions
-if "%a%"=="rem"    goto removefromexclusions
+if "%a%"=="rem" goto removefromexclusions
 
 ::	Если команда пустая
 if "%a%"=="" goto command-missing
 
 ::	Если команда не распознана
 Echo %incorrect-command%
-goto func
+goto endfunc
 
 :command-missing
 Echo %pls-enter-comm%
-goto func
+goto endfunc
+
+
+:update-ipset
+cls
+:: Запуск обновления данных (можно вынести в отдельный пункт меню "Обновить IP")
+echo [93mОбновление списка диапазонов, пожалуйста подождите...[96m
+echo.
+cd /d "%~dp0"
+powershell -ExecutionPolicy Bypass -File "pwsh\update_ipset.ps1"
+
+echo.
+echo [92mГотово^^![0m
+
+echo.&echo [0mСписок найденных активных доменов и их диапазонов:[0m
+call :check-ranges-file
+for /f "usebackq tokens=1,2 delims=:" %%a in ("%ranges_file%") do (
+    echo [36m%%a [%%b][0m
+)
+echo.
+echo [92mНайденные домены сохранены (в [96m"%ranges_file%"[92m) и теперь вы можете просто создать/обновить правила в брандмауэре, в главном меню^^![0m
+
+goto endfunc
 
 
 :::::::::::::::::::::::::::::::::
 ::Создание правил в брандмауэре::
 :::::::::::::::::::::::::::::::::
-:create
-set a=
-set create-confirmation=
-Set /p create-confirmation="[92mПодтвердите создание правил в брандмауэре [ y / n ]: %usercommandcolor%"
-
-if "%create-confirmation%"=="y" goto create-y
-if "%create-confirmation%"=="Y" goto create-y
-if "%create-confirmation%"=="n" goto create-n
-if "%create-confirmation%"=="N" goto create-n
-
-Echo %incorrect-command%
-
-goto func
+:rules-create
+cls
+choice /C "10" /m "[93mПодтвердите СОЗДАНИЕ правил в брандмауэре"
+if "%errorlevel%"=="1" (goto create-y)
+if "%errorlevel%"=="2" (goto create-n)
+goto endfunc
 
 :create-y
 echo.
-set cldesc="Правило для блокирования СНГ кластеров в World of Tanks: Blitz. (Created in WoTB CSM by NEMIX)"
-netsh advfirewall firewall add rule name="WoTB RU_C0 Block" description=%cldesc% protocol=any action=block dir=out remoteip=92.223.6.70-92.223.6.90
-netsh advfirewall firewall add rule name="WoTB RU_C1 Block" description=%cldesc% protocol=any action=block dir=out remoteip=92.223.33.38-92.223.33.88
-netsh advfirewall firewall add rule name="WoTB RU_C2 Block" description=%cldesc% protocol=any action=block dir=out remoteip=92.223.14.214-92.223.14.225
-netsh advfirewall firewall add rule name="WoTB RU_C3 Block" description=%cldesc% protocol=any action=block dir=out remoteip=92.38.156.9-92.38.156.191
-netsh advfirewall firewall add rule name="WoTB RU_C4 Block" description=%cldesc% protocol=any action=block dir=out remoteip=92.223.4.178-92.223.4.191
-netsh advfirewall firewall add rule name="WoTB RU_C5 Block" description=%cldesc% protocol=any action=block dir=out remoteip=92.223.41.33-92.223.41.195
-echo [92mПравила брандмауэра созданы![0m
-goto func
+
+set rule_description="Правило для блокирования кластеров СНГ сервера игры Tanks Blitz (created in wotb-csm)"
+
+call :check-ranges-file
+
+:: Читаем файл и создаем правила
+:: %%a - домен (имя правила), %%b - диапазон (IP/CIDR)
+for /f "usebackq tokens=1,2 delims=:" %%a in ("%ranges_file%") do (
+    echo [93mНастройка блокировки: %%a [%%b][0m
+    
+    :: Удаляем старое правило для этого конкретного домена, если оно было
+    netsh advfirewall firewall delete rule name="%%a_block" >nul 2>&1
+    
+    :: Добавляем новое правило
+    netsh advfirewall firewall add rule name="%%a_block" description=%rule_description% dir=out action=block remoteip=%%b >nul
+    netsh advfirewall firewall add rule name="%%a_block" description=%rule_description% dir=in action=block remoteip=%%b >nul
+)
+
+
+echo [92mПравила брандмауэра созданы^^![0m
+goto endfunc
 
 :create-n
-echo [31m[         СОЗДАНИЕ ПРАВИЛ ОТКЛОНЕНО         ][0m
-goto func
+echo [31m[   создание правил отклонено   ][0m
+goto endfunc
 
 
 
 :::::::::::::::::::::::::::::::::
 ::Удаление правил в брандмауэре::
 :::::::::::::::::::::::::::::::::
-:rules-del
-set a=
-set ask=
-Set /p ask="[33mПодтвердите удаление правил в брандмауэре [ y / n ]: %usercommandcolor%"
+:rules-delete
+cls
+choice /C "10" /m "[93mПодтвердите УДАЛЕНИЕ правил в брандмауэре"
+if "%errorlevel%"=="1" (goto rules-del-y)
+if "%errorlevel%"=="2" (goto rules-del-n)
+goto endfunc
 
-if "%ask%"=="y" goto rules-del-y
-if "%ask%"=="Y" goto rules-del-y
-if "%ask%"=="n" goto rules-del-n
-if "%ask%"=="N" goto rules-del-n
-
-set ask=
-Echo %incorrect-command%
-goto func
 
 :rules-del-y
-netsh advfirewall firewall delete rule name="WoTB RU_C0 Block"
-netsh advfirewall firewall delete rule name="WoTB RU_C1 Block"
-netsh advfirewall firewall delete rule name="WoTB RU_C2 Block"
-netsh advfirewall firewall delete rule name="WoTB RU_C3 Block"
-netsh advfirewall firewall delete rule name="WoTB RU_C4 Block"
-netsh advfirewall firewall delete rule name="WoTB RU_C5 Block"
-::check errors with previvous command
-IF %ERRORLEVEL% NEQ 0 (
-Echo %clasters-rls-nf%
-echo.
-goto func
+call :check-ranges-file
+
+:: Читаем файл и создаем правила
+:: %%a - домен (имя правила), %%b - диапазон (IP/CIDR)
+for /f "usebackq tokens=1,2 delims=:" %%a in ("%ranges_file%") do (
+    echo [93mУдаление правила: %%a [%%b][0m
+    :: Удаляем старое правило для этого конкретного домена, если оно было
+    netsh advfirewall firewall delete rule dir=out name="%%a_block" >nul 2>&1
+    netsh advfirewall firewall delete rule dir=in name="%%a_block" >nul 2>&1
 )
-echo [92m[   Правила в брандмауэре удалены!   ][0m
-goto func
+
+echo [92m[  Правила в брандмауэре удалены^^!  ][0m
+goto endfunc
 
 :rules-del-n
-echo [31m[   УДАЛЕНИЕ ОТКЛОНЕНО   ][0mx
-goto func
+echo [31m[  удаление отклонено  ][0mx
+goto endfunc
 
-::blockers
+
+
 :block-all
-set a=
-netsh advfirewall firewall set rule name="WoTB RU_C0 Block" new enable=yes
-netsh advfirewall firewall set rule name="WoTB RU_C1 Block" new enable=yes
-netsh advfirewall firewall set rule name="WoTB RU_C2 Block" new enable=yes
-netsh advfirewall firewall set rule name="WoTB RU_C3 Block" new enable=yes
-netsh advfirewall firewall set rule name="WoTB RU_C4 Block" new enable=yes
-netsh advfirewall firewall set rule name="WoTB RU_C5 Block" new enable=yes
-::check errors with previvous command
-IF %ERRORLEVEL% NEQ 0 (
-Echo %clasters-rls-nf%
-echo.
-goto func
+cls
+call :check-ranges-file
+
+:: Читаем файл и создаем правила
+:: %%a - домен (имя правила), %%b - диапазон (IP/CIDR)
+for /f "usebackq tokens=1,2 delims=:" %%a in ("%ranges_file%") do (
+    echo [93mБлокировка: %%a [%%b][0m
+    netsh advfirewall firewall set rule name="%%a_block" dir=out new enable=yes >nul
+    netsh advfirewall firewall set rule name="%%a_block" dir=in new enable=yes >nul
 )
-echo [92mВсе кластера заблокированы![0m
-goto func
+echo [92mВсе кластера заблокированы^^![0m
+goto endfunc
 
-
-:block0
-netsh advfirewall firewall set rule name="WoTB RU_C0 Block" new enable=yes
-::check errors with previvous command
-IF %ERRORLEVEL% NEQ 0 (
-Echo %clast-rls-nf%
-echo.
-goto func
-)
-echo [92mКластер [96mRU_C0[92m Заблокирован![0m
-echo.
-goto func
-
-
-:block1
-netsh advfirewall firewall set rule name="WoTB RU_C1 Block" new enable=yes
-::check errors with previvous command
-IF %ERRORLEVEL% NEQ 0 (
-Echo %clast-rls-nf%
-echo.
-goto func
-)
-echo [92mКластер [96mRU_C1[92m Заблокирован![0m
-echo.
-goto func
-
-
-:block2
-netsh advfirewall firewall set rule name="WoTB RU_C2 Block" new enable=yes
-::check errors with previvous command
-IF %ERRORLEVEL% NEQ 0 (
-Echo %clast-rls-nf%
-echo.
-goto func
-)
-echo [92mКластер [96mRU_C2[92m Заблокирован![0m
-echo.
-goto func
-
-
-:block3
-netsh advfirewall firewall set rule name="WoTB RU_C3 Block" new enable=yes
-::check errors with previvous command
-IF %ERRORLEVEL% NEQ 0 (
-Echo %clast-rls-nf%
-echo.
-goto func
-)
-echo [92mКластер [96mRU_C3[92m Заблокирован![0m
-echo.
-goto func
-
-
-:block4
-netsh advfirewall firewall set rule name="WoTB RU_C4 Block" new enable=yes
-::check errors with previvous command
-IF %ERRORLEVEL% NEQ 0 (
-Echo %clast-rls-nf%
-echo.
-goto func
-)
-echo [92mКластер [96mRU_C4[92m Заблокирован![0m
-echo.
-goto func
-
-
-:block5
-netsh advfirewall firewall set rule name="WoTB RU_C5 Block" new enable=yes
-::check errors with previvous command
-IF %ERRORLEVEL% NEQ 0 (
-Echo %clast-rls-nf%
-echo.
-goto func
-)
-echo [92mКластер [96mRU_C5[92m Заблокирован![0m
-echo.
-goto func
-
-
-::unblockers
 :unblock-all
-netsh advfirewall firewall set rule name="WoTB RU_C0 Block" new enable=no
-netsh advfirewall firewall set rule name="WoTB RU_C1 Block" new enable=no
-netsh advfirewall firewall set rule name="WoTB RU_C2 Block" new enable=no
-netsh advfirewall firewall set rule name="WoTB RU_C3 Block" new enable=no
-netsh advfirewall firewall set rule name="WoTB RU_C4 Block" new enable=no
-netsh advfirewall firewall set rule name="WoTB RU_C5 Block" new enable=no
-::check errors with previvous command
-IF %ERRORLEVEL% NEQ 0 (
-Echo %clasters-rls-nf%
-echo.
-goto func
+cls
+call :check-ranges-file
+
+:: Читаем файл и создаем правила
+:: %%a - домен (имя правила), %%b - диапазон (IP/CIDR)
+for /f "usebackq tokens=1,2 delims=:" %%a in ("%ranges_file%") do (
+    echo [93mРазблокировка: %%a [%%b][0m
+    netsh advfirewall firewall set rule name="%%a_block" dir=out new enable=no >nul
+    netsh advfirewall firewall set rule name="%%a_block" dir=in new enable=no >nul
 )
-echo [92mВсе кластера разблокированы![0m
-goto func
+echo [92mВсе кластера разблокированы^^![0m
+goto endfunc
 
 
-:unblock0
-netsh advfirewall firewall set rule name="WoTB RU_C0 Block" new enable=no
-::check errors with previvous command
-IF %ERRORLEVEL% NEQ 0 (
-Echo %clast-rls-nf%
+
+::::::::::::::::::::::::::::::
+::::::::::::::::::::::::::::::
+::::::::::::::::::::::::::::::
+:cluster-manager
+cls
 echo.
-goto func
+if "%act%"=="block" (
+    echo [96m[ [91m--- БЛОКИРОВКА КЛАСТЕРА --- [96m][0m
+    set rule_state=yes
+) else (
+    echo [96m[ [92m--- РАЗБЛОКИРОВКА КЛАСТЕРА --- [96m][0m
+    set rule_state=no
 )
-echo [92mКластер [96mRU_C0[92m Разблокирован![0m
-echo.
-goto func
 
-
-:unblock1
-netsh advfirewall firewall set rule name="WoTB RU_C1 Block" new enable=no
-::check errors with previvous command
-IF %ERRORLEVEL% NEQ 0 (
-Echo %clast-rls-nf%
-echo.
-goto func
+:: Проверка наличия файла данных
+set "ranges_file=%~dp0pwsh\ip_map_ru.txt"
+if not exist "%ranges_file%" (
+    echo [91mОшибка: Сначала обновите базу IP диапазонов^^![0m
+    goto endfunc
 )
-echo [92mКластер [96mRU_C1[92m Разблокирован![0m
-echo.
-goto func
 
+:: Включаем локальные переменные, чтобы не засорять память
+setlocal enabledelayedexpansion
+set count=0
 
-:unblock2
-netsh advfirewall firewall set rule name="WoTB RU_C2 Block" new enable=no
-::check errors with previvous command
-IF %ERRORLEVEL% NEQ 0 (
-Echo %clast-rls-nf%
-echo.
-goto func
+:: Сбор доменов
+for /f "usebackq tokens=1 delims=:" %%a in ("%ranges_file%") do (
+    if not defined seen_%%a (
+        set /a count+=1
+        set "cluster[!count!]=%%a"
+        set "seen_%%a=1"
+        echo [96m[!count!] %%a[0m
+    )
 )
-echo [92mКластер [96mRU_C2[92m Разблокирован![0m
-echo.
-goto func
 
-:unblock3
-netsh advfirewall firewall set rule name="WoTB RU_C3 Block" new enable=no
-::check errors with previvous command
-IF %ERRORLEVEL% NEQ 0 (
-Echo %clast-rls-nf%
-echo.
-goto func
+if %count%==0 (
+    echo [91mСписок доменов пуст[0m
+    endlocal
+    goto endfunc
 )
-echo [92mКластер [96mRU_C3[92m Разблокирован![0m
-echo.
-goto func
 
-:unblock4
-netsh advfirewall firewall set rule name="WoTB RU_C4 Block" new enable=no
-::check errors with previvous command
-IF %ERRORLEVEL% NEQ 0 (
-Echo %clast-rls-nf%
 echo.
-goto func
-)
-echo [92mКластер [96mRU_C4[92m Разблокирован![0m
-echo.
-goto func
+set /p c_choice="Выберите номер (0 для отмены): "
 
-:unblock5
-netsh advfirewall firewall set rule name="WoTB RU_C5 Block" new enable=no
-::check errors with previvous command
-IF %ERRORLEVEL% NEQ 0 (
-Echo %clast-rls-nf%
-echo.
-goto func
+if "%c_choice%"=="0" endlocal & goto endfunc
+if not defined cluster[%c_choice%] (
+    echo  [91mНеверный выбор^^![0m
+    endlocal
+    goto cluster-manager
 )
-echo [92mКластер [96mRU_C5[92m Разблокирован![0m
+
+:: Извлекаем выбранный домен
+set "sel_domain=!cluster[%c_choice%]!"
+:: Выполняем команду Firewall
+:: Используем префикс WOTB_ для точности
+netsh advfirewall firewall set rule name="!sel_domain!_block" dir=out new enable=%rule_state% >nul 2>&1
+netsh advfirewall firewall set rule name="!sel_domain!_block" dir=in new enable=%rule_state% >nul 2>&1
+
 echo.
-goto func
+if "%act%"=="block" (
+    echo [92mКластер !sel_domain! заблокирован^^![0m
+) else (
+    echo [92mКластер !sel_domain! разблокирован^^![0m
+)
+
+:: Очистка памяти и возврат
+endlocal
+goto endfunc
+
+::::::::::::::::::::::::::::::
+::::::::::::::::::::::::::::::
+::::::::::::::::::::::::::::::
+
+
 
 :restart
+cls
 endlocal
 cmd /c "%~f0" :
 exit
 
+
 :wf
-Echo [33m[      Запуск Windows Firewall ...      ][0m
+Echo [93m[      Запуск Windows Firewall ...      ][0m
 start WF.msc
 Echo [92m[       Windows Firewall Запущен!       ][0m
-goto func
+goto ask
+
 
 :github
 echo [96m ! github
 explorer "https://github.com/N3M1X10/wotb-csm"
-goto func
+goto endfunc
 
-::ADD TO EXCLUSIONS TOOL::
-:addtoexclusions
-powershell Add-MpPreference -ExclusionProcess "%~xn0"
-if %ERRORLEVEL% neq 0 (
-echo [31mОшибка[0m
-) else (
-echo [96m%~xn0[92m добавлен в исключения Windows Defender![0m
-)
-goto func
 
-:removefromexclusions
-powershell Remove-MpPreference -ExclusionProcess "%~xn0"
-echo [96m%~xn0[92m удалён из исключений Windows Defender!
-goto func
-
-:openclusterchecker
-set checkername=cluster-checker.bat
-start "" "%checkername%"
-IF %ERRORLEVEL% NEQ 0 (
-echo [31m[ Не удаётся запустить [96m%checkername%[31m ][0m
-echo.
-goto func
-)
-echo [96m! %checkername%[0m
-goto func
 
 :end
 endlocal
 exit
+
+
+
+:check-ping
+echo.
+echo [93m[ --- ПРОВЕРКА ЗАДЕРЖКИ КЛАСТЕРОВ (PING) --- ] [0m
+echo [91m ^^!^^!^^! НЕ ЗАБУДЬТЕ ОТКЛЮЧИТЬ БЛОКИРОВКУ КЛАСТЕРОВ ПЕРЕД ПРОВЕРКОЙ[0m
+set "domains_file=%~dp0pwsh\domains_ru.txt"
+
+if not exist "%domains_file%" (
+    echo  [91mОшибка: Файл доменов не найден! [0m
+    goto endfunc
+)
+
+echo [96mПожалуйста, подождите. Идет опрос серверов... [0m
+echo.
+
+:: Однострочник PowerShell: читает файл, пингует каждый домен и выводит результат
+powershell -NoProfile -ExecutionPolicy Bypass -Command ^
+    "Get-Content '%domains_file%' | ForEach-Object { " ^
+        "$res = Test-Connection -ComputerName $_ -Count 2 -ErrorAction SilentlyContinue | Measure-Object -Property ResponseTime -Average;" ^
+        "if ($res.Average) {" ^
+            "$ms = [Math]::Round($res.Average);" ^
+            "if ($ms -lt 60) { $color = '[92m' } elseif ($ms -lt 120) { $color = '[93m' } else { $color = '[91m' };" ^
+            "Write-Host (' {0} {1}ms' -f $_.PadRight(30), $ms) -ForegroundColor ([ConsoleColor]::Cyan);" ^
+        "} else {" ^
+            "Write-Host (' {0} ОШИБКА ДОСТУПА' -f $_.PadRight(30)) -ForegroundColor Red;" ^
+        "}" ^
+    "}"
+
+echo.
+echo [92mПроверка завершена. [0m
+goto endfunc
+
+
+
+:check-ranges-file
+set "ranges_file=%~dp0pwsh\ip_map_ru.txt"
+if not exist "%ranges_file%" (
+    echo [91mОшибка: Не удалось получить данные об IP[0m
+    goto endfunc
+)
+exit /b
+
+
+
+:: end of a function
+:endfunc
+echo.&echo [!time!] Function has complete
+if !exaf!==1 (endlocal&exit/b)
+endlocal&pause&cls&goto :ask
+
+

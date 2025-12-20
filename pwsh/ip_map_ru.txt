@@ -1,0 +1,4 @@
+login0.tanksblitz.ru:92.223.6.0/24
+login1.tanksblitz.ru:92.223.33.0/24
+login2.tanksblitz.ru:92.223.14.0/24
+login3.tanksblitz.ru:92.38.156.0/24
