@@ -3,8 +3,8 @@ chcp 65001>nul
 
 :: Source: https://github.com/N3M1X10/wotb-csm
 
-set "arg=%1"
-if "%arg%" == "admin" (
+set adm_arg=%1
+if "%adm_arg%" == "admin" (
 title wotb-csm (admin^)
 ) else (
     echo [93m[powershell] Requesting admin rights . . .
@@ -36,11 +36,12 @@ echo [96muba - Разблокировать все кластера[0m
 echo.
 echo [93mДругие опции:[0m
 echo [96mp / ping - Провести диагностику сети и измерить задержку до кластеров[0m
+echo [96ms / stat / status - Узнать состояние правил[0m
 echo [96mwf / firewall - Открыть монитор Windows Defender[0m
 echo [96mh / help - Перейти на страницу GitHub[0m
 echo.
-echo [96mr / restart - [93mПерезапустить этот пакет[0m
-echo [96mx / close -[0m [31mЗавершить работу[0m
+echo [96mr - [93mПерезапустить этот пакет[0m
+echo [96mx -[0m [31mЗавершить работу[0m
 
 
 ::Вопрос от функции
@@ -54,16 +55,20 @@ if "%select%"=="ba"  cls & call :block-all & goto :endfunc
 if "%select%"=="uba" cls & call :unblock-all & goto :endfunc
 
 if "%select%"=="1" goto rules-create
-if "%select%"=="2" goto rules-delete
+if "%select%"=="2" goto rules-remove-confirm
 if "%select%"=="3" goto update-ipset
 
 if "%select%"=="p"    goto check-ping
 if "%select%"=="ping" goto check-ping
 
+if "%select%"=="s" goto :rules-status
+if "%select%"=="stat" goto :rules-status
+if "%select%"=="status" goto :rules-status
+
 ::controls
-if "%select%"=="x"     goto end
-if "%select%"=="end"   goto end
-if "%select%"=="close" goto end
+if "%select%"=="x"     goto close
+if "%select%"=="end"   goto close
+if "%select%"=="close" goto close
 
 if "%select%"=="r"       goto restart
 if "%select%"=="restart" goto restart
@@ -89,7 +94,7 @@ call :unblock-all
 cd /d "%~dp0"
 echo [36m
 :: Запуск обновления данных (можно вынести в отдельный пункт меню "Обновить IP")
-powershell -ExecutionPolicy Bypass -File "pwsh\update_ipset.ps1"
+powershell -ExecutionPolicy Bypass -File "%~dp0pwsh\update_ipset.ps1"
 
 echo.
 echo [0mГотово^^!
@@ -110,70 +115,58 @@ goto endfunc
 :rules-create
 cls
 echo.
-choice /C "10" /m "[93mПодтвердите [36mСОЗДАНИЕ [93mправил в брандмауэре"
+choice /C "10" /m "[93mПодтвердите [36mСОЗДАНИЕ [93mправил в брандмауэре[0m"
 if "%errorlevel%"=="1" (goto rules-create-y)
 if "%errorlevel%"=="2" (goto rules-create-n)
 goto endfunc
 
-:rules-create-y
-echo.
 
+:rules-create-y
 set rule_description="Правило для блокирования кластеров СНГ сервера игры Tanks Blitz (created in wotb-csm)"
 
+:: Удаляем все старые правила
+call :remove-rules
+echo.
 :: Читаем файл и создаем правила
 :: %%a - домен (имя правила), %%b - диапазон (IP/CIDR)
 call :check-ranges-file
 for /f "usebackq tokens=1,2 delims=:" %%a in ("%ranges_file%") do (
-    echo [93mНастройка блокировки: %%a [%%b][0m
-    
-    :: Удаляем старое правило для этого конкретного домена, если оно было
-    netsh advfirewall firewall delete rule name="%%a_block" >nul 2>&1
+    echo [93m[+] Создаю правило: %%a [%%b][0m
     
     :: Добавляем новое правило
-    netsh advfirewall firewall add rule name="%%a_block" description=%rule_description% dir=out action=block remoteip=%%b >nul
-    netsh advfirewall firewall add rule name="%%a_block" description=%rule_description% dir=in action=block remoteip=%%b >nul
+    netsh advfirewall firewall add rule name="%%a_block" description=%rule_description% dir=out action=block remoteip=%%b >nul 2>&1
+    if !errorlevel! neq 0 (
+        echo [91mОшибка создания правила[0m
+    )
 )
 
 echo.
 echo Правила брандмауэра созданы^^!
+
 goto endfunc
+
 
 :rules-create-n
 endlocal
 goto ask
 
 
-:rules-delete
+:rules-remove-confirm
 cls
 echo.
 
-choice /C "10" /m "[93mПодтвердите [91mУДАЛЕНИЕ [93mправил из брандмауэра"
-if "%errorlevel%"=="1" (call :rules-delete-y)
-if "%errorlevel%"=="2" (call :rules-delete-n)
+choice /C "10" /m "[93mПодтвердите [91mУДАЛЕНИЕ [93mправил из брандмауэра[0m"
+if "%errorlevel%"=="1" (call :remove-rules)
+if "%errorlevel%"=="2" (endlocal & goto ask)
 goto endfunc
 
 
-:rules-delete-y
+:remove-rules
 echo.
-
-:: Читаем файл и создаем правила
-:: %%a - домен (имя правила), %%b - диапазон (IP/CIDR)
-call :check-ranges-file
-for /f "usebackq tokens=1,2 delims=:" %%a in ("%ranges_file%") do (
-    echo [93mУдаление правила: %%a [%%b][0m
-    :: Удаляем старое правило для этого конкретного домена, если оно было
-    netsh advfirewall firewall delete rule dir=out name="%%a_block" >nul 2>&1
-    netsh advfirewall firewall delete rule dir=in name="%%a_block" >nul 2>&1
-)
-
-echo.
-echo Правила в брандмауэре удалены^^!
+echo Удаляю все правила tanksblitz в брандмауэре...
+powershell -Command "Get-NetFirewallRule | Where-Object { $_.DisplayName -like '*tanksblitz*' } | Remove-NetFirewallRule -PassThru | ForEach-Object { Write-Host ('[93m[-] Удалено правило: {0} [0m' -f $_.DisplayName) }"
+echo Готово
 exit /b
-
-:rules-delete-n
-endlocal
-goto ask
-
 
 
 :block-all
@@ -182,8 +175,8 @@ goto ask
 call :check-ranges-file
 for /f "usebackq tokens=1,2 delims=:" %%a in ("%ranges_file%") do (
     echo [0mБлокировка: %%a [%%b][0m
-    netsh advfirewall firewall set rule name="%%a_block" dir=out new enable=yes >nul
-    netsh advfirewall firewall set rule name="%%a_block" dir=in new enable=yes >nul
+    netsh advfirewall firewall set rule name="%%a_block" dir=out new enable=yes >nul 2>&1
+    netsh advfirewall firewall set rule name="%%a_block" dir=in new enable=yes >nul 2>&1
 )
 echo Все кластера заблокированы^^!
 exit /b
@@ -195,8 +188,8 @@ exit /b
 call :check-ranges-file
 for /f "usebackq tokens=1,2 delims=:" %%a in ("%ranges_file%") do (
     echo [0mРазблокировка: %%a [%%b][0m
-    netsh advfirewall firewall set rule name="%%a_block" dir=out new enable=no >nul
-    netsh advfirewall firewall set rule name="%%a_block" dir=in new enable=no >nul
+    netsh advfirewall firewall set rule name="%%a_block" dir=out new enable=no >nul 2>&1
+    netsh advfirewall firewall set rule name="%%a_block" dir=in new enable=no >nul 2>&1
 )
 echo Все кластера разблокированы^^!
 exit /b
@@ -218,47 +211,49 @@ if "%act%"=="block" (
 
 :: Проверка наличия файла данных
 set "ranges_file=%~dp0pwsh\ip_map_ru.txt"
+set "ps_cmd=$rules = @{}; Get-NetFirewallRule | Where-Object { $_.DisplayName -like '*tanksblitz*' } | ForEach-Object { $rules[$_.DisplayName] = $_.Enabled }; Get-Content '%ranges_file%' | ForEach-Object { $d = $_.Split(':')[0]; $st = 'Disabled'; foreach($k in $rules.Keys){ if($k -match $d -and $rules[$k] -eq 1){ $st = 'Enabled'; break } }; Write-Host ($d + ':' + $st) }"
+
 if not exist "%ranges_file%" (
     echo [91mОшибка: Сначала обновите базу IP диапазонов^^![0m
     goto endfunc
 )
 
-:: Включаем локальные переменные, чтобы не засорять память
-setlocal enabledelayedexpansion
 set count=0
+:: Очищаем массив перед использованием
+for /f "tokens=1 delims==" %%v in ('set cluster[ 2^>nul') do set "%%v="
 
-:: Сбор и вывод доменов
-for /f "usebackq tokens=1 delims=:" %%a in ("%ranges_file%") do (
-    if not defined seen_%%a (
-        set /a count+=1
-        set "cluster[!count!]=%%a"
-        set "seen_%%a=1"
-        echo [0m[!count!] %%a[0m
+:: Парсим вывод PS. %%a - домен, %%b - статус
+for /f "usebackq tokens=1,2 delims=:" %%a in (`powershell -NoProfile -Command "%ps_cmd%"`) do (
+    set /a count+=1
+    set "cluster[!count!]=%%a"
+    set "status[!count!]=%%b"
+    
+    if "%%b"=="Enabled" (
+        echo  [!count!] %%a [[91mБЛОКИРОВАН[0m]
+    ) else (
+        echo  [!count!] %%a [[92mДОСТУПЕН[0m]
     )
 )
 
 if %count%==0 (
-    echo [91mСписок доменов пуст[0m
-    endlocal
+    echo [91mПравила еще не созданы. Запустите создание правил[0m
     goto endfunc
 )
 
 echo.
 set /p c_choice="Выберите номер (0 для отмены): "
 
-if "%c_choice%"=="0" endlocal & goto ask
+if "%c_choice%"=="0" goto endfunc
 if not defined cluster[%c_choice%] (
-    echo [91mНеверный выбор^^![0m
-    endlocal
-    >nul timeout /t 1
+    echo [91mНеверный выбор![0m
+    timeout /t 1 >nul
     goto cluster-manager
 )
 
-:: Извлекаем выбранный домен
 set "sel_domain=!cluster[%c_choice%]!"
+
 :: Изменяем правило
 netsh advfirewall firewall set rule name="!sel_domain!_block" dir=out new enable=%rule_state% >nul 2>&1
-netsh advfirewall firewall set rule name="!sel_domain!_block" dir=in new enable=%rule_state% >nul 2>&1
 
 echo.
 if "%act%"=="block" (
@@ -267,7 +262,6 @@ if "%act%"=="block" (
     echo [0mКластер !sel_domain! разблокирован^^![0m
 )
 
-endlocal
 goto endfunc
 
 
@@ -294,10 +288,33 @@ goto ask
 
 
 
-:end
+:close
 endlocal
 exit
 
+
+
+:rules-status
+cls
+echo [0m[ --- СТАТУС ПРАВИЛ БЛОКИРОВКИ --- ][0m
+echo.
+
+powershell -NoProfile -ExecutionPolicy Bypass -Command ^
+    "$rules = Get-NetFirewallRule | Where-Object { $_.DisplayName -like '*tanksblitz*'} | Select-Object DisplayName, Enabled;" ^
+    "if (-not $rules) {" ^
+        "Write-Host '[91mПравила не найдены :([0m';" ^
+        "Write-Host '[0mМожете создать их в главном меню^![0m';" ^
+    "} else {" ^
+        "foreach ($r in $rules) {" ^
+            "$name = $r.DisplayName.PadRight(30);" ^
+            "if ($r.Enabled -eq 'True') {" ^
+                "Write-Host ('{0} [[92mВКЛЮЧЕНО[0m]' -f $name);" ^
+            "} else {" ^
+                "Write-Host ('{0} [[91mВЫКЛЮЧЕНО[0m]' -f $name);" ^
+            "}" ^
+        "}" ^
+    "}"
+goto endfunc
 
 
 :check-ping
@@ -307,7 +324,7 @@ echo [93m[ --- ПРОВЕРКА ЗАДЕРЖКИ КЛАСТЕРОВ (PING) --- 
 
 set "domains_file=%~dp0pwsh\domains_ru.txt"
 if not exist "%domains_file%" (
-    echo  [91mОшибка: Файл доменов не найден! [0m
+    echo [91mОшибка: Файл доменов не найден! [0m
     goto endfunc
 )
 
@@ -391,7 +408,7 @@ if !errorlevel!==0 (
     echo [ok] killer network
 )
 
-::Ethernet
+:: Ethernet
 echo.
 powershell -Command "if ((Get-NetAdapter | Where-Object {$Status -eq 'Up'}).MediaConnectionState -contains 'Wireless') { exit 1 } else { exit 0 }"
 if !errorlevel!==1 (
@@ -422,7 +439,7 @@ powershell -NoProfile -Command ^
 :: Проверка загрузки CPU (если проц загружен на 100%, пинг тоже будет скакать)
 echo.
 powershell -NoProfile -ExecutionPolicy Bypass -Command ^
- "$c = Get-Counter '\Processor(_Total)\%% Processor Time' -SampleInterval 1 -MaxSamples 1;" ^
+ "$c = Get-Counter '\Processor(_Total)\%% Processor Time' -SampleInterval 1 -MaxSamples 1 -ErrorAction SilentlyContinue;" ^
  "$v = [Math]::Round($c.CounterSamples[0].CookedValue);" ^
  "if ($v -gt 80) { Write-Host ('[91m[!] CPU Load: {0}%% - High[0m' -f $v) }" ^
  "else { Write-Host ('[0m[ok] CPU Load: {0}%%[0m' -f $v) }"
