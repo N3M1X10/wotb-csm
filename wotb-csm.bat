@@ -8,7 +8,7 @@ if "%adm_arg%" == "admin" (
 title wotb-csm (admin^)
 ) else (
     echo [93m[powershell] Requesting admin rights . . .
-    powershell -Command "Start-Process 'cmd.exe' -ArgumentList '/k \"\"%~f0\" admin\"' -Verb RunAs"
+    powershell -NoProfile -Command "Start-Process 'cmd.exe' -ArgumentList '/k \"\"%~f0\" admin\"' -Verb RunAs"
     exit /b
 )
 
@@ -25,12 +25,12 @@ cls
 echo [101;93mМеню настройки кластеров СНГ сервера Tanks Blitz[0m
 echo.
 echo [93mВыберите команду:[0m
-echo [96mb - открыть меню блокировки кластеров[0m
-echo [96mub - открыть меню разблокировки кластеров[0m
+echo [96m1 - открыть меню блокировки кластеров[0m
+echo [96m2 - открыть меню разблокировки кластеров[0m
 echo.
-echo [96m1 - Создать / обновить правила для блокировки кластеров[0m
-echo [96m2 - Удалить все правила для блокировки кластеров[0m
-echo [96m3 - Обновить диапазоны ip-адресов для блокировки[0m
+echo [96m3 - Создать / обновить правила для блокировки кластеров[0m
+echo [96m4 - Удалить все правила для блокировки кластеров[0m
+echo [96m5 - Обновить диапазоны ip-адресов для блокировки[0m
 echo.
 echo [96mba - Заблокировать все кластера[0m
 echo [96muba - Разблокировать все кластера[0m
@@ -38,28 +38,32 @@ echo.
 echo [93mДругие опции:[0m
 echo [96md / diag - Провести диагностику сети[0m
 echo [96mp / ping - Измерить задержку до кластеров[0m
-echo [96ms / stat / status - Узнать состояние правил[0m
-echo [96mwf / firewall - Открыть монитор Windows Defender[0m
-echo [96mh / help - Перейти на страницу GitHub[0m
+echo [96ms / stat - Узнать состояние правил[0m
+echo [96mwf / firewall - Открыть монитор Windows Firewall[0m
+echo [96mh / git - Перейти на страницу GitHub[0m
 echo.
 echo [96mr - [93mПерезапустить этот пакет[0m
 echo [96mx -[0m [31mЗавершить работу[0m
 
 
-::Вопрос от функции
+:: Вопрос от функции
 echo.
 set select=
 set /p select="[92mВвод:[0m "
 
-if "%select%"=="b"  set act=block& call :cluster-manager
-if "%select%"=="ub" set act=unblock& call :cluster-manager
+if "%select%"=="1"  set act=block& call :cluster-manager
+
+if "%select%"=="2" set act=unblock& call :cluster-manager
 
 if "%select%"=="ba"  cls & call :block-all & goto :endfunc
+
 if "%select%"=="uba" cls & call :unblock-all & goto :endfunc
 
-if "%select%"=="1" goto create-rules
-if "%select%"=="2" goto rules-remove-confirm
-if "%select%"=="3" goto update-ipset
+if "%select%"=="3" goto create-rules
+
+if "%select%"=="4" goto rules-remove-confirm
+
+if "%select%"=="5" goto update-ipset
 
 if "%select%"=="p"    goto check-ping
 if "%select%"=="ping" goto check-ping
@@ -67,11 +71,9 @@ if "%select%"=="ping" goto check-ping
 if "%select%"=="d"    cls & call :network-diagnostics & goto endfunc
 if "%select%"=="diag" cls & call :network-diagnostics & goto endfunc
 
-if "%select%"=="s" goto :rules-status
+if "%select%"=="s"    goto :rules-status
 if "%select%"=="stat" goto :rules-status
-if "%select%"=="status" goto :rules-status
 
-::controls
 if "%select%"=="x"     goto close
 if "%select%"=="end"   goto close
 if "%select%"=="close" goto close
@@ -79,11 +81,9 @@ if "%select%"=="close" goto close
 if "%select%"=="r"       goto restart
 if "%select%"=="restart" goto restart
 
-:: open github
 if "%select%"=="h"    goto github
-if "%select%"=="help" goto github
+if "%select%"=="git"  goto github
 
-::   open Windows Firewall
 if "%select%"=="wf"       goto :wf
 if "%select%"=="firewall" goto :wf
 
@@ -98,9 +98,9 @@ call :remove-rules
 
 cd /d "%~dp0"
 echo [36m
-:: Запуск обновления данных (можно вынести в отдельный пункт меню "Обновить IP")
-powershell -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "%~dp0pwsh\update_ipset.ps1"
 
+:: Запуск обновления данных
+powershell -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "%~dp0pwsh\update_ipset.ps1"
 echo.
 echo [0mГотово^^!
 
@@ -160,14 +160,12 @@ if "%errorlevel%"=="2" (goto ask)
 :remove-rules
 echo.
 echo Пытаюсь удалить правила tanksblitz в брандмауэре...
-powershell -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command "Get-NetFirewallRule | Where-Object { $_.DisplayName -like '*tanksblitz*' } | Remove-NetFirewallRule -PassThru | ForEach-Object { Write-Host ('[91m[-] [93mУдалено правило: {0} [0m' -f $_.DisplayName) }"
+powershell -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command "$r = Get-NetFirewallRule -DisplayName '*tanksblitz*' -ErrorAction SilentlyContinue; if ($r) { $r | Remove-NetFirewallRule; foreach ($rule in $r) { Write-Host ('[91m[-] [93mУдалено правило: {0} [0m' -f $rule.DisplayName) } }"
 echo Готово
 exit /b
 
 
 :block-all
-:: Читаем файл и создаем правила
-:: %%a - домен (имя правила), %%b - диапазон (IP/CIDR)
 call :check-ranges-file
 for /f "usebackq tokens=1,2 delims=:" %%a in ("%ranges_file%") do (
     echo [0mБлокировка: %%a [%%b][0m
@@ -178,8 +176,6 @@ exit /b
 
 
 :unblock-all
-:: Читаем файл и создаем правила
-:: %%a - домен (имя правила), %%b - диапазон (IP/CIDR)
 call :check-ranges-file
 for /f "usebackq tokens=1,2 delims=:" %%a in ("%ranges_file%") do (
     echo [0mРазблокировка: %%a [%%b][0m
@@ -211,12 +207,13 @@ if not exist "%ranges_file%" (
     goto endfunc
 )
 
-set "ps_cmd=$r=@{}; [Microsoft.Management.Infrastructure.CimInstance[]](Get-CimInstance -Namespace root/standardcimv2 -ClassName MSFT_NetFirewallRule -Filter 'DisplayName like \"%%tanksblitz%%\"') | ForEach-Object { $r[$_.DisplayName] = $_.Enabled }; $lines = [System.IO.File]::ReadAllLines('%ranges_file%'); foreach($l in $lines){ $d=$l.Split(':')[0]; $st='NotExist'; if($r.ContainsKey($d + '_block')){ $st = if($r[$d + '_block'] -eq 1){'Enabled'}else{'Disabled'} }; [Console]::WriteLine($d+':'+$st) }"
-set count=0
-for /f "tokens=1 delims==" %%v in ('set cluster[ 2^>nul') do set "%%v="
+:: pwsh
+set "ps_cmd=$r_raw = Get-CimInstance -Namespace root/standardcimv2 -ClassName MSFT_NetFirewallRule -Filter 'DisplayName like \"%%tanksblitz%%\"' -ErrorAction SilentlyContinue; $r=@{}; if ($r_raw) { foreach($rule in $r_raw) { $r[$rule.DisplayName] = $rule.Enabled } }; $lines = [System.IO.File]::ReadAllLines('%ranges_file%'); foreach($l in $lines){ $d=$l.Split(':')[0]; $st='NotExist'; if($r.ContainsKey($d + '_block')){ $st = if($r[$d + '_block'] -eq 1){'Enabled'}else{'Disabled'} }; [Console]::WriteLine($d+':'+$st) }"
 
-:: Парсим вывод PS. %%a - домен, %%b - статус (Enabled / Disabled / NotExist)
-for /f "usebackq tokens=1,2 delims=:" %%a in (`powershell -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command "%ps_cmd%"`) do (
+set count=0
+:: Циклы парсинга вывода PS. %%a - домен, %%b - статус (Enabled / Disabled / NotExist)
+for /f "tokens=1 delims==" %%v in ('set cluster[ 2^>nul') do set "%%v="
+for /f "usebackq tokens=1,2 delims=:" %%a in (`powershell -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command "%ps_cmd%" 2^>nul`) do (
     set /a count+=1
     set "cluster[!count!]=%%a"
     set "status[!count!]=%%b"
@@ -236,22 +233,35 @@ if %count%==0 (
 )
 
 echo.
-:cluster-manager-choice
-set "c_choice="
-set /p c_choice="Выберите номер (0 для отмены): "
-
-if "%c_choice%"=="0" goto ask
-
-if not defined cluster[%c_choice%] (
-    echo [91m[ Неверный выбор ][0m
-    echo.
-    goto :cluster-manager-choice
+:: Формируем строку допустимых символов для choice
+set "keys=0"
+for /L %%i in (1,1,%count%) do (
+    :: Это создаст строку типа 0123456789ABC...
+    if %%i LSS 10 (set "keys=!keys!%%i") else (
+        :: Если доменов больше 9, используем буквы для выбора
+        set "map=ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+        set /a idx=%%i-10
+        for /f "tokens=1" %%m in ("!map:~%%i,1!") do set "keys=!keys!%%m"
+    )
 )
 
+:cluster-manager-choice
+set "c_idx="
+echo [93mНажмите цифру на клавиатуре для выбора[0m
+choice /C:%keys% /N /M "Выберите номер (0 для отмены): "
+set /a c_idx=%ERRORLEVEL%
+
+:: Если нажали 0 - выходим
+if "!c_idx!"=="1" goto ask
+
+:: Корректируем индекс для массива (так как 0 был первым, вычитаем 1)
+set /a c_choice=%c_idx%-1
+
+:: Извлекаем данные по индексу
 set "sel_domain=!cluster[%c_choice%]!"
 set "sel_status=!status[%c_choice%]!"
 
-:: ПРОВЕРКА: Если правила не существует, не пытаемся его менять
+:: ПРОВЕРКА: Если правило не существует
 if "%sel_status%"=="NotExist" (
     echo.
     echo [91mОшибка: Правило для !sel_domain! не найдено в Брандмауэре.[0m
@@ -262,6 +272,7 @@ if "%sel_status%"=="NotExist" (
 :: Изменяем правило
 netsh advfirewall firewall set rule name="!sel_domain!_block" dir=out new enable=%rule_state% >nul 2>&1
 
+:: Проверка ошибок
 if %errorlevel% neq 0 (
     echo [91mОшибка при применении правила netsh для !sel_domain![0m
 ) else (
@@ -344,7 +355,6 @@ echo.
 echo [96mПожалуйста, подождите. Идет опрос серверов... [0m
 echo.
 
-:: Однострочник PowerShell: читает файл, пингует каждый домен и выводит результат
 powershell -NoProfile -ExecutionPolicy Bypass -Command ^
     "$domains = Get-Content '%domains_file%' | Where-Object { $_ -match '\.' };" ^
     "$jobs = foreach ($d in $domains) {" ^
@@ -434,7 +444,7 @@ if !errorlevel!==0 (
 
 :: Ethernet
 echo.
-powershell -Command "if ((Get-NetAdapter | Where-Object {$Status -eq 'Up'}).MediaConnectionState -contains 'Wireless') { exit 1 } else { exit 0 }"
+powershell -NoProfile -Command "if ((Get-NetAdapter | Where-Object {$Status -eq 'Up'}).MediaConnectionState -contains 'Wireless') { exit 1 } else { exit 0 }"
 if !errorlevel!==1 (
     echo [93m[^^!] Вы используете Wi-Fi. Для минимальной задержки рекомендуется Ethernet[0m
 ) else (
