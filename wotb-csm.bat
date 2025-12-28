@@ -7,8 +7,8 @@ set adm_arg=%1
 if "%adm_arg%" == "admin" (
 title wotb-csm (admin^)
 ) else (
-    echo [93m[powershell] Requesting admin rights . . .
-    powershell -NoProfile -Command "Start-Process 'cmd.exe' -ArgumentList '/k \"\"%~f0\" admin\"' -Verb RunAs"
+    echo [93m[powershell] Requesting admin rights...
+    powershell -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command "Start-Process 'cmd.exe' -ArgumentList '/k \"\"%~f0\" admin\"' -Verb RunAs"
     exit /b
 )
 
