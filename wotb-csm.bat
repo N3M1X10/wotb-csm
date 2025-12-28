@@ -19,24 +19,25 @@ setlocal EnableDelayedExpansion
 cls
 echo [101;93mМеню настройки кластеров Tanks Blitz (CIS)[0m
 echo.
-echo [93mМеню контроля правил:[0m
+echo [93mМеню для точечного контроля правил:[0m
 echo [96m1 - Блокировка кластеров[0m
 echo [96m2 - Разблокировка кластеров[0m
+echo.
+echo [93mРаботаем с пачкой правил:[0m
+echo [96mba - Заблокировать все кластеры[0m
+echo [96muba - Разблокировать все кластеры[0m
 echo.
 echo [93mСервисные операции с правилами:[0m
 echo [96m3 - Создать / обновить правила для блокировки кластеров[0m
 echo [96m4 - Удалить все правила для блокировки кластеров[0m
 echo [96m5 - Обновить диапазоны ip-адресов для блокировки[0m
 echo.
-echo [96mba - Заблокировать все кластеры[0m
-echo [96muba - Разблокировать все кластеры[0m
-echo.
 echo [93mПрочие опции:[0m
 echo [96md / diag - Провести диагностику сети[0m
 echo [96mp / ping - Измерить задержку до кластеров[0m
 echo [96ms / stat - Узнать состояние правил[0m
-echo [96mwf / firewall - Открыть монитор Windows Firewall[0m
-echo [96mh / git - Перейти на страницу GitHub[0m
+echo [96mf / wf - Открыть монитор Windows Firewall[0m
+echo [96mh / help / git - Перейти на страницу GitHub[0m
 echo.
 echo [96mr - [93mПерезапустить этот пакет[0m
 echo [96mx - [91mЗавершить работу[0m
@@ -47,16 +48,13 @@ echo.
 set select=
 set /p select="[92mВвод:[0m "
 
-if "%select%"=="1"  set act=block& call :cluster-manager
-
-if "%select%"=="2" set act=unblock& call :cluster-manager
+if "%select%"=="1" set "act=block" & call :cluster-manager
+if "%select%"=="2" set "act=unblock" & call :cluster-manager
 
 if "%select%"=="ba"  cls & call :block-all & goto :endfunc
-
 if "%select%"=="uba" cls & call :unblock-all & goto :endfunc
 
 if "%select%"=="3" goto create-rules
-
 if "%select%"=="4" goto rules-remove-confirm
 
 if "%select%"=="5" goto update-ipset
@@ -79,9 +77,10 @@ if "%select%"=="restart" goto restart
 
 if "%select%"=="h"    goto github
 if "%select%"=="git"  goto github
+if "%select%"=="help" goto github
 
-if "%select%"=="wf"       goto :wf
-if "%select%"=="firewall" goto :wf
+if "%select%"=="f"  goto :wf
+if "%select%"=="wf" goto :wf
 
 goto ask
 
@@ -108,14 +107,19 @@ exit /b
 :update-ipset
 cls
 echo [96m[ [93m- - - Обновление списка диапазонов - - - [96m][0m
-echo.
-echo Так как старые диапазоны и правила вам - больше не потребуются, а также чтобы вы не забыли обновиться:
-echo.
-choice /C "10" /m "[93m[?] Подтвердите [91mУДАЛЕНИЕ [93mправил в брандмауэре[0m"
-if "%errorlevel%"=="1" (echo подтверждено)
-if "%errorlevel%"=="2" (goto ask)
+call :check-rules
+if !rules_count! lss 1 (
+    rem dn
+) else (
+    echo.
+    echo Так как старые диапазоны и правила вам - больше не потребуются, а также чтобы вы не забыли обновиться:
+    echo.
+    choice /C "10" /m "[93m[?] Подтвердите [91mУДАЛЕНИЕ [93mправил в брандмауэре[0m"
+    if "!errorlevel!"=="1" (echo подтверждено)
+    if "!errorlevel!"=="2" (goto ask)
 
-call :remove-rules
+    call :remove-rules
+)
 
 :: Запуск обновления данных
 echo.
@@ -228,46 +232,46 @@ echo Готово
 exit /b
 
 
+
 :block-all
 call :check-rules
-if !rules_count! lss 1 (exit /b)
-
+if !rules_count! lss 1 (echo Правила блокировки не найдены& exit /b)
 call :check-ranges-file
 for /f "usebackq tokens=1,2 delims=:" %%a in ("%ranges_file%") do (
     echo [0mБлокировка: %%a [%%b][0m
     netsh advfirewall firewall set rule name="%%a_block" dir=out new enable=yes >nul 2>&1
 )
 echo Все кластеры заблокированы^^!
-
 exit /b
 
 
 :unblock-all
 call :check-rules
-if !rules_count! lss 1 (exit /b)
-
+if !rules_count! lss 1 (echo Правила блокировки не найдены& exit /b)
 call :check-ranges-file
 for /f "usebackq tokens=1,2 delims=:" %%a in ("%ranges_file%") do (
     echo [0mРазблокировка: %%a [%%b][0m
     netsh advfirewall firewall set rule name="%%a_block" dir=out new enable=no >nul 2>&1
 )
 echo Все кластеры разблокированы^^!
-
 exit /b
+
 
 
 :check-rules
 set rules_count=0
+call :check-ranges-file
 for /f "usebackq tokens=1,2 delims=:" %%a in ("%ranges_file%") do (
     netsh advfirewall firewall show rule name="%%a_block" >nul 2>&1
     if !errorlevel! equ 0 (
         set /a rules_count+=1
     )
 )
-if !rules_count! geq 1 (
+if "!rules_count!" geq "1" (
+    :: Правила найдены
     exit /b 1
 ) else (
-    echo [91m[^^!^^!^^!] Ошибка: правила блокировки не найдены[0m
+    :: Правила не найдены
     exit /b 0
 )
 
@@ -277,11 +281,11 @@ if !rules_count! geq 1 (
 cls
 echo.
 if "%act%"=="block" (
-    echo [96m[ [91m- - - БЛОКИРОВКА КЛАСТЕРА - - -[96m ][0m
+    echo [91m[ [93m- - - БЛОКИРОВКА КЛАСТЕРА - - -[91m ][0m
     echo.
     set rule_state=yes
 ) else (
-    echo [96m[ [92m- - - РАЗБЛОКИРОВКА КЛАСТЕРА - - -[96m ][0m
+    echo [92m[ [93m- - - РАЗБЛОКИРОВКА КЛАСТЕРА - - -[92m ][0m
     echo.
     set rule_state=no
 )
@@ -339,7 +343,6 @@ for /L %%i in (1,1,%count%) do (
 
 :cluster-manager-choice
 set "c_idx="
-echo [93mНажмите цифру на клавиатуре для выбора[0m
 choice /C:%keys% /N /M "Выберите номер (0 для отмены): "
 set /a c_idx=%ERRORLEVEL%
 
@@ -370,9 +373,9 @@ if %errorlevel% neq 0 (
 ) else (
     echo.
     if "%act%"=="block" (
-        echo [96mКластер !sel_domain! заблокирован![0m
+        echo [92mКластер [96m!sel_domain! [92mзаблокирован^^![0m
     ) else (
-        echo [96mКластер !sel_domain! разблокирован![0m
+        echo [92mКластер [96m!sel_domain! [92mразблокирован^^![0m
     )
 )
 goto endfunc
@@ -387,9 +390,8 @@ exit
 
 
 :wf
-Echo [93m[ Запуск Windows Firewall... ][0m
+:: Запуск Windows Firewall...
 start WF.msc
-Echo [92m[ Windows Firewall Запущен! ][0m
 goto ask
 
 
@@ -422,7 +424,7 @@ powershell -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command ^
             "$status = if($r[$ruleName] -eq 1){'[91mБЛОКИРУЕТСЯ[0m'}else{'[92mДОСТУПЕН[0m'};" ^
             "Write-Host ('{0} [{1}]' -f $d.PadRight(15), $status);" ^
         "} else {" ^
-            "Write-Host ('{0} [[90mПРАВИЛО НЕ НАЙДЕНО[0m ]' -f $d.PadRight(15));" ^
+            "Write-Host ('{0} [[90mПРАВИЛО НЕ НАЙДЕНО[0m]' -f $d.PadRight(15));" ^
         "}" ^
     "}"
 goto endfunc
@@ -437,7 +439,7 @@ echo [96m[ [93m- - - ПРОВЕРКА ЗАДЕРЖКИ КЛАСТЕРОВ (PIN
 call :check-domains-file
 
 echo.
-echo [96mПожалуйста, подождите. Идет опрос серверов... [0m
+echo [96mПожалуйста, подождите. Идет опрос серверов...[0m
 echo.
 
 powershell -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command ^
@@ -471,14 +473,15 @@ powershell -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command ^
 
 echo.
 echo [92mПроверка завершена
-echo [36mТеперь вы можете использовать эти данные для выбора ваших оптимальных кластеров[0m
+echo [0m[i] Теперь вы можете использовать эти данные для выбора ваших оптимальных кластеров[0m
 goto endfunc
 
 
 
 :network-diagnostics
-echo [93m[ - - - Запуск сетевой диагностики - - - ][0m
-echo [36m[i] Это может занять некоторое время[0m
+echo [96m[ [93m- - - Сетевая диагностика - - - [96m][0m
+echo.
+echo [36m[i] Этот процесс может занять некоторое время[0m
 echo.
 
 :: VPN
@@ -682,9 +685,10 @@ powershell -NoProfile -Command ^
  "if ($loss -gt 0) { Write-Host ('[91m[^!] Потери пакетов: {0}%%^![0m' -f $loss) -ForegroundColor Red } else { Write-Host '[0m[ok] Packet Loss: 0%%[0m' };" ^
  "if ($jitter -gt 15) { Write-Host ('[93m[^!] Высокий джиттер (нестабильность): {0:N1} мс. Возможны телепорты. [0m' -f $jitter) } else { Write-Host ('[0m[ok] Jitter: {0:N1} ms[0m' -f $jitter) }"
 
+:end-of-net-diag
 echo.
 echo [92mДиагностика завершена[0m
-echo [36m [i] Каждый пункт без "ok" означает - предупреждение. Это означает, что вы можете воспользоваться поиском в интернете, для детального решения каждой сетевой проблемы со стороны вашей системы[0m
+echo [0m[i] Каждый пункт без "ok" означает - предупреждение. Это означает, что вы можете воспользоваться поиском в интернете, для детального решения каждой сетевой проблемы со стороны вашей системы[0m
 exit /b
 
 
