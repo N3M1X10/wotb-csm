@@ -229,23 +229,47 @@ exit /b
 
 
 :block-all
+call :check-rules
+if !rules_count! lss 1 (exit /b)
+
 call :check-ranges-file
 for /f "usebackq tokens=1,2 delims=:" %%a in ("%ranges_file%") do (
     echo [0mБлокировка: %%a [%%b][0m
     netsh advfirewall firewall set rule name="%%a_block" dir=out new enable=yes >nul 2>&1
 )
 echo Все кластеры заблокированы^^!
+
 exit /b
 
 
 :unblock-all
+call :check-rules
+if !rules_count! lss 1 (exit /b)
+
 call :check-ranges-file
 for /f "usebackq tokens=1,2 delims=:" %%a in ("%ranges_file%") do (
     echo [0mРазблокировка: %%a [%%b][0m
     netsh advfirewall firewall set rule name="%%a_block" dir=out new enable=no >nul 2>&1
 )
 echo Все кластеры разблокированы^^!
+
 exit /b
+
+
+:check-rules
+set rules_count=0
+for /f "usebackq tokens=1,2 delims=:" %%a in ("%ranges_file%") do (
+    netsh advfirewall firewall show rule name="%%a_block" >nul 2>&1
+    if !errorlevel! equ 0 (
+        set /a rules_count+=1
+    )
+)
+if !rules_count! geq 1 (
+    exit /b 1
+) else (
+    echo [91m[^^!^^!^^!] Ошибка: правила блокировки не найдены[0m
+    exit /b 0
+)
 
 
 
@@ -386,23 +410,23 @@ exit
 cls
 echo [96m[ [93m- - - СТАТУС ПРАВИЛ БЛОКИРОВКИ - - - [96m][0m
 echo.
-
+call :check-ranges-file
 powershell -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command ^
-    "$rules = Get-NetFirewallRule | Where-Object { $_.DisplayName -like '*tanksblitz*'} | Select-Object DisplayName, Enabled;" ^
-    "if (-not $rules) {" ^
-        "Write-Host '[91mПравила не найдены :([0m';" ^
-        "Write-Host '[0mМожете создать их в главном меню^![0m';" ^
-    "} else {" ^
-        "foreach ($r in $rules) {" ^
-            "$name = $r.DisplayName.PadRight(1);" ^
-            "if ($r.Enabled -eq 'True') {" ^
-                "Write-Host ('{0} [[92mВКЛЮЧЕНО[0m]' -f $name);" ^
-            "} else {" ^
-                "Write-Host ('{0} [[91mВЫКЛЮЧЕНО[0m]' -f $name);" ^
-            "}" ^
+    "$r_raw = Get-CimInstance -Namespace root/standardcimv2 -ClassName MSFT_NetFirewallRule -Filter 'DisplayName like \"%%tanksblitz%%\"' -ErrorAction SilentlyContinue;" ^
+    "$r = @{}; if ($r_raw) { foreach($rule in $r_raw) { $r[$rule.DisplayName] = $rule.Enabled } };" ^
+    "$lines = [System.IO.File]::ReadAllLines('%ranges_file%');" ^
+    "foreach($l in $lines){" ^
+        "$d = $l.Split(':')[0];" ^
+        "$ruleName = $d + '_block';" ^
+        "if($r.ContainsKey($ruleName)){" ^
+            "$status = if($r[$ruleName] -eq 1){'[91mБЛОКИРУЕТСЯ[0m'}else{'[92mДОСТУПЕН[0m'};" ^
+            "Write-Host ('{0} [{1}]' -f $d.PadRight(15), $status);" ^
+        "} else {" ^
+            "Write-Host ('{0} [[90mПРАВИЛО НЕ НАЙДЕНО[0m ]' -f $d.PadRight(15));" ^
         "}" ^
     "}"
 goto endfunc
+
 
 
 :check-ping
