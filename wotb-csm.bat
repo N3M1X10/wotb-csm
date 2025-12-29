@@ -17,7 +17,7 @@ endlocal
 setlocal EnableDelayedExpansion
 
 cls
-echo [101;93mМеню настройки кластеров Tanks Blitz (CIS)[0m
+echo [101;93mМеню настройки кластеров WOTB[0m
 echo.
 echo [93mМеню для точечного контроля правил:[0m
 echo [96m1 - Блокировка кластеров[0m
@@ -33,7 +33,11 @@ echo [96m4 - Удалить все правила для блокировки �
 echo [96m5 - Обновить диапазоны ip-адресов для блокировки[0m
 echo.
 echo [93mПрочие опции:[0m
+echo [96mplay - [92mзапустить WOTB[0m
+echo [96mc / clean - Почистить файлы конфигурации[0m
+echo [96mreset - [91mсбросить данные WOTB[0m
 echo [96md / diag - Провести диагностику сети[0m
+echo [96mnf / net-flush - Провести профилактику сети[0m
 echo [96mp / ping - Измерить задержку до кластеров[0m
 echo [96ms / stat - Узнать состояние правил[0m
 echo [96mf / wf - Открыть монитор Windows Firewall[0m
@@ -59,11 +63,21 @@ if "%select%"=="4" goto rules-remove-confirm
 
 if "%select%"=="5" goto update-ipset
 
+if "%select%"=="c"     call :flush-wotb-config & goto endfunc
+if "%select%"=="clean" call :flush-wotb-config & goto endfunc
+if "%select%"=="reset" call :flush-wotb-config "entire" & goto endfunc
+
+
+if "%select%"=="play" goto start-wotb
+
 if "%select%"=="p"    goto check-ping
 if "%select%"=="ping" goto check-ping
 
 if "%select%"=="d"    cls & call :network-diagnostics & goto endfunc
 if "%select%"=="diag" cls & call :network-diagnostics & goto endfunc
+
+if "%select%"=="nf"        cls & call :net-flush & goto endfunc
+if "%select%"=="net-flush" cls & call :net-flush & goto endfunc
 
 if "%select%"=="s"    goto :rules-status
 if "%select%"=="stat" goto :rules-status
@@ -180,7 +194,6 @@ choice /C "10" /m "[93m[?] Подтвердите [36mСОЗДАНИЕ [93mп
 if "%errorlevel%"=="1" (goto create-rules-y)
 if "%errorlevel%"=="2" (goto ask)
 
-
 :create-rules-y
 set rule_description="Правило для блокирования кластеров СНГ сервера игры Tanks Blitz (created in wotb-csm)"
 
@@ -206,19 +219,19 @@ echo Готово
 goto endfunc
 
 
+
 :rules-remove-confirm
 cls
 choice /C "10" /m "[93m[?] Подтвердите [91mУДАЛЕНИЕ [93mправил из брандмауэра[0m"
 if "%errorlevel%"=="1" (call :remove-rules & goto endfunc)
 if "%errorlevel%"=="2" (goto ask)
 
-
 :remove-rules
 echo.
 echo Пытаюсь удалить правила tanksblitz в брандмауэре...
 
 powershell -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command ^
-$r = Get-NetFirewallRule -DisplayName '*tanksblitz*' -ErrorAction SilentlyContinue; ^
+$r = Get-NetFirewallRule ^| Where-Object { $_.DisplayName -like '*tanksblitz*' -or $_.DisplayName -like '*Tanks_Blitz*' }; ^
 if ($r) { ^
     $r ^| Remove-NetFirewallRule; ^
     foreach ($rule in $r) { ^
@@ -243,6 +256,7 @@ for /f "usebackq tokens=1,2 delims=:" %%a in ("%ranges_file%") do (
 )
 echo Все кластеры заблокированы^^!
 exit /b
+
 
 
 :unblock-all
@@ -366,7 +380,6 @@ if "%sel_status%"=="NotExist" (
 
 :: Изменяем правило
 netsh advfirewall firewall set rule name="!sel_domain!_block" dir=out new enable=%rule_state% >nul 2>&1
-
 :: Проверка ошибок
 if %errorlevel% neq 0 (
     echo [91mОшибка при применении правила netsh для !sel_domain![0m
@@ -378,6 +391,7 @@ if %errorlevel% neq 0 (
         echo [92mКластер [96m!sel_domain! [92mразблокирован^^![0m
     )
 )
+
 goto endfunc
 
 
@@ -389,14 +403,16 @@ cmd /c "%~f0" :
 exit
 
 
+
 :wf
 :: Запуск Windows Firewall...
 start WF.msc
 goto ask
 
 
+
 :github
-echo [93m^^! github
+:: opening github
 explorer "https://github.com/N3M1X10/wotb-csm"
 goto ask
 
@@ -433,7 +449,6 @@ goto endfunc
 
 :check-ping
 cls
-echo.
 echo [96m[ [93m- - - ПРОВЕРКА ЗАДЕРЖКИ КЛАСТЕРОВ (PING) - - - [96m][0m
 
 call :check-domains-file
@@ -475,6 +490,140 @@ echo.
 echo [92mПроверка завершена
 echo [0m[i] Теперь вы можете использовать эти данные для выбора ваших оптимальных кластеров[0m
 goto endfunc
+
+
+
+:flush-wotb-config
+cls
+echo.
+echo Завершаю игру, если она была открыта...
+set "exeToStart="
+for /f "usebackq delims=" %%p in (`powershell -NoProfile -ExecutionPolicy Bypass -Command ^
+    "$data = @('TanksBlitz;TanksBlitz.exe;*Tanks Blitz*', 'WoTBlitz;wotblitz.exe;*World_of_Tanks_Blitz*');" ^
+    "foreach ($line in $data) {" ^
+    "    $entry = $line.Split(';');" ^
+    "    $n = $entry[0]; $e = $entry[1]; $s = $entry[2];" ^
+    "    $proc = Get-Process $n -ErrorAction SilentlyContinue;" ^
+    "    if ($proc) {" ^
+    "        $path = Get-ItemProperty 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\*', 'HKLM:\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\*', 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\*' -EA 0 | Where-Object { $_.DisplayName -like $s -or $_.PSChildName -like $s } | Select-Object -ExpandProperty InstallLocation -EA 0;" ^
+    "        if (-not $path) { $path = (Get-AppxPackage ('*' + $n + '*') -EA 0).InstallLocation };" ^
+    "        if ($path) {" ^
+    "            $full = Get-ChildItem -Path $path -Filter $e -Recurse -EA 0 | Select-Object -ExpandProperty FullName -First 1;" ^
+    "            Stop-Process -Name $n -Force -EA 0;" ^
+    "            $proc | Wait-Process -EA 0;" ^
+    "            if ($full) { Write-Output $full; break; }" ^
+    "        }" ^
+    "    }" ^
+    "}"`) do set "exeToStart=%%p"
+
+echo.
+echo Ищу папку с кэшем игры в документах...
+:: Извлекаем путь к Документам из реестра
+for /f "tokens=2*" %%a in ('reg query "HKCU\Software\Microsoft\Windows\CurrentVersion\Explorer\User Shell Folders" /v Personal') do set "ActualDocs=%%b"
+:: Разворачиваем переменные среды (если путь содержит %USERPROFILE%)
+for /f "delims=" %%i in ('echo %ActualDocs%') do set "FullDocsPath=%%i"
+
+set "docs=%FullDocsPath%"
+set "wotb_path=!docs!\TanksBlitz\"
+
+:: чё делаем?
+echo.
+if "%~1"=="entire" (
+    echo [93m[ Сброс WOTB ][0m
+    choice /C "10" /m "[93m[?] Подтвердите [91mУДАЛЕНИЕ [93mвсех кэшированных данных игры из папки документов[0m"
+    if "!errorlevel!"=="1" (echo подтверждено)
+    if "!errorlevel!"=="2" (goto ask)
+
+    cd /d !docs!
+    rd /q /s !docs!\TanksBlitz\
+    echo.
+    echo Полный сброс завершён
+
+) else (
+    echo [93m[ Деликатная стирка кэша WOTB ][0m
+
+    echo.
+    echo удаляем кэш, в корне папки
+    cd /d "!wotb_path!"
+    echo.
+    echo удалям файлики
+    for %%f in (*.bin *.yaml *.bin.bk *.archive *.log *.txt) do (
+        del /f /q "%%f"
+        echo [90m * файл : "%%f" - удалён[0m
+    )
+    echo.
+    echo удаляем папки
+    for %%f in (region_cache shader_cache) do (
+        if exist "%%f" (rd /q /s "%%f")
+        echo [90m * папка : "%%f" - удалена[0m
+    )
+    echo.
+    echo чистим кэш внутри папок
+    cd /d "cache"
+    echo удалям файлики
+    for %%f in ("server_config_*_*.dat*") do (
+        del /f /q "%%f" 
+        echo [90m * файл : "%%f" - удалён[0m
+    )
+
+    REM game_options_local_options.dat - локальные настройки клиента (графика, громкость, сенса итд)
+)
+
+if defined exeToStart (
+    echo.
+    echo [93m[ Перезапуск игры... ][0m
+    start "" "!exeToStart!"
+    set "exeToStart="
+)
+exit /b
+
+
+
+:start-wotb
+cls
+echo [93m[ Запуск WOTB ][0m
+
+echo Пробую запустить игру...
+powershell -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command ^
+    "$apps = @(" ^
+    "    @{ name='TanksBlitz'; exe='TanksBlitz.exe'; search='*Tanks Blitz*' }," ^
+    "    @{ name='WoTBlitz'; exe='wotblitz.exe'; search='*World_of_Tanks_Blitz*' }" ^
+    ");" ^
+    "$foundPaths = @();" ^
+    "foreach ($app in $apps) {" ^
+    "    if (Get-Process $app.name -ErrorAction SilentlyContinue) {" ^
+    "        Write-Host ('Игра ' + $app.name + ' уже запущена.') -ForegroundColor Yellow;" ^
+    "        exit;" ^
+    "    }" ^
+    "    $path = Get-ItemProperty 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\*', " ^
+    "                           'HKLM:\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\*', " ^
+    "                           'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\*' -ErrorAction SilentlyContinue " ^
+    "            | Where-Object { $_.DisplayName -like $app.search -or $_.PSChildName -like $app.search } " ^
+    "            | Select-Object -ExpandProperty InstallLocation -ErrorAction SilentlyContinue;" ^
+    "    if (-not $path) {" ^
+    "        $path = (Get-AppxPackage ('*' + $app.name + '*') -ErrorAction SilentlyContinue).InstallLocation;" ^
+    "    }" ^
+    "    if ($path) {" ^
+    "        $fullPath = Get-ChildItem -Path $path -Filter $app.exe -Recurse -ErrorAction SilentlyContinue " ^
+    "                    | Select-Object -ExpandProperty FullName -First 1;" ^
+    "        if ($fullPath) { $foundPaths += [PSCustomObject]@{ Game = $app.name; Path = $fullPath } }" ^
+    "    }" ^
+    "}" ^
+    "if ($foundPaths.Count -eq 0) {" ^
+    "    Write-Host 'Игра не найдена в системе.' -ForegroundColor Red; exit;" ^
+    "}" ^
+    "if ($foundPaths.Count -eq 1) { $selection = $foundPaths; }" ^
+    "else {" ^
+    "    Write-Host 'Найдено несколько версий. Выберите нужную в открывшемся окне...' -ForegroundColor Cyan;" ^
+    "    $selection = $foundPaths | Out-GridView -Title 'Выберите версию игры для запуска' -OutputMode Single;" ^
+    "}" ^
+    "if ($selection) {" ^
+    "    Write-Host ('Запускаю ' + $selection.Game + '...') -ForegroundColor Green;" ^
+    "    Start-Process $selection.Path;" ^
+    "}"
+
+>nul timeout /t 2
+goto ask
 
 
 
@@ -691,6 +840,38 @@ echo [92mДиагностика завершена[0m
 echo [0m[i] Каждый пункт без "ok" означает - предупреждение. Это означает, что вы можете воспользоваться поиском в интернете, для детального решения каждой сетевой проблемы со стороны вашей системы[0m
 exit /b
 
+
+
+:net-flush
+cls
+echo [93m[ Сетевая профилактика ][0m
+echo.
+
+:: base reset
+echo NETSH WINSOCK RESET...
+netsh winsock reset >nul
+echo NETSH INT IP RESET...
+netsh int ip reset >nul
+echo IPCONFIG IPV4...
+ipconfig /release >nul
+ipconfig /renew >nul
+
+:: extended reset
+echo RENEW EL...
+ipconfig /renew EL >nul
+echo IPCONFIG IPV6...
+ipconfig /release6 >nul
+ipconfig /renew6 >nul
+
+:: dns reset
+echo IPCONFIG FLUSHDNS...
+ipconfig /flushdns >nul
+echo IPCONFIG REGDNS...
+ipconfig /registerdns >nul
+echo Flush NetBIOS...
+nbtstat -R >nul
+nbtstat -RR >nul
+exit /b
 
 
 :: end of a function
