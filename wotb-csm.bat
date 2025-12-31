@@ -604,7 +604,7 @@ if "%~1"=="entire" (
 
     echo [90m
     echo удалям файлики
-    for %%f in (*.bin *.yaml *.bin.bk *.archive) do (
+    for %%f in (startupOptions.* optionsGlobal.*) do (
         del /f /q "%%f"
         echo [90m * файл : "%%f" - удалён[0m
     )
@@ -616,15 +616,15 @@ if "%~1"=="entire" (
     rem     echo [90m * папка : "%%f" - удалена[0m
     rem )
 
-    rem echo [90m
-    rem echo чистим кэш внутри папок
-    rem cd /d "cache"
-    rem echo.
-    rem echo удалям файлики
-    rem for %%f in ("server_config_*_*.dat*") do (
-    rem     del /f /q "%%f"
-    rem     echo [90m * файл : "%%f" - удалён[0m
-    rem )
+    echo [90m
+    echo чистим кэш внутри папок
+    cd /d "cache"
+    echo.
+    echo удалям файлики
+    for %%f in (base_stuff_*.dat) do (
+        del /f /q "%%f"
+        echo [90m * файл : "%%f" - удалён[0m
+    )
 )
 exit /b
 
@@ -650,12 +650,18 @@ powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command ^
     "    foreach ($d in $dirs) { foreach ($s in $subs) { $f = Join-Path (Join-Path $d $s) $lExe; if (Test-Path $f) { return $f } } }" ^
     "    return $null" ^
     "}" ^
-    "function Wait-Launcher($proc, $title) {" ^
+    "function Wait-Launcher($proc) {" ^
+    "    $sig = '[DllImport(\"user32.dll\")] public static extern bool PostMessage(IntPtr hWnd, uint Msg, IntPtr wParam, IntPtr lParam);';" ^
+    "    $type = Add-Type -MemberDefinition $sig -Name 'Win32PostMessage' -Namespace 'Win32' -PassThru;" ^
     "    $timer = [System.Diagnostics.Stopwatch]::StartNew();" ^
     "    while ($timer.Elapsed.TotalSeconds -lt 40) {" ^
     "        $p = Get-Process $proc -ErrorAction SilentlyContinue | Where-Object { $_.MainWindowHandle -ne 0 };" ^
-    "        if ($p) { Start-Sleep -Seconds 2; return $true }" ^
-    "        Start-Sleep -Seconds 1" ^
+    "        if ($p) {" ^
+    "            Start-Sleep -m 200;" ^
+    "            $type::PostMessage($p.MainWindowHandle, 0x0112, 0xF060, [IntPtr]::Zero);" ^
+    "            return $true" ^
+    "        }" ^
+    "        Start-Sleep -m 500" ^
     "    }; return $false" ^
     "}" ^
     "function Show-ConsoleMenu([string]$Title, $Items) {" ^
@@ -702,23 +708,23 @@ powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command ^
     "}" ^
     "if ($foundPaths.Count -eq 0) { Write-Host 'Игры не найдены.' -ForegroundColor Red; exit }" ^
     "$foundPaths += [PSCustomObject]@{ Game='[91m[ ОТМЕНА ]'; Path=$null };" ^
-    "$sel = Show-ConsoleMenu -Title 'Выберите версию игры или выход:' -Items $foundPaths;" ^
+    "$sel = Show-ConsoleMenu -Title 'Выберите вариант стрелочками:' -Items $foundPaths;" ^
     "if ($sel -and $sel.Path) {" ^
-    "    if (Get-Process $sel.Game -ErrorAction SilentlyContinue) { Write-Host 'Игра уже запущена.' -ForegroundColor Yellow; exit }" ^
+    "    if (Get-Process $sel.Game -ErrorAction SilentlyContinue) { Write-Host ' [i] Игра уже запущена' -ForegroundColor Yellow; Start-Sleep -s 2; exit }" ^
     "    $lp = Get-LauncherPath $sel.LName $sel.LExe;" ^
     "    if (-not (Get-Process $sel.LProc -ErrorAction SilentlyContinue)) {" ^
     "        if ($lp) {" ^
     "            Write-Host ('Запуск лаунчера ' + $sel.LName + '...') -ForegroundColor Cyan;" ^
     "            Start-Process $lp;" ^
-    "            if (Wait-Launcher $sel.LProc $sel.LTitle) { Write-Host 'Запуск игры...' -ForegroundColor Green; Start-Process $sel.Path }" ^
+    "            if (Wait-Launcher $sel.LProc) { Write-Host 'Запуск игры...' -ForegroundColor Green; Start-Process $sel.Path; }" ^
     "        } else { Write-Host 'Лаунчер не найден.' -ForegroundColor Red }" ^
     "    } else {" ^
     "        Write-Host 'Лаунчер активен. Запуск...' -ForegroundColor Green; Start-Process $sel.Path" ^
     "    }" ^
+    " Start-Sleep -s 2;" ^
     "} else { exit }"
 
-rem >nul timeout /t 2
-goto endfunc
+rem goto endfunc
 goto ask
 
 
@@ -750,9 +756,9 @@ goto endfunc
 
 :network-diagnostics
 echo [96m[ [93m- - - Сетевая диагностика - - - [96m][0m
+
 echo.
-echo [36m[i] Этот процесс может занять некоторое время[0m
-echo.
+echo [93m[i] [36mЭтот процесс может занять некоторое время[0m
 
 :: VPN
 echo.
@@ -869,7 +875,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -Command ^
  "} else {" ^
  "    $netshStatus = if ($isNetshEnabled) { 'Enabled' } else { 'Disabled' };" ^
  "    $hwStatus = if ($isHwEnabled) { 'Enabled (via Queues)' } else { 'Disabled' };" ^
- "    Write-Host ('[!/инфо] RSS ограничен. Система (Netsh): {0}, Адаптер (Hardware): {1}' -f $netshStatus, $hwStatus) -ForegroundColor Yellow;" ^
+ "    Write-Host ('[i] RSS ограничен. Система (Netsh): {0}, Адаптер (Hardware): {1}' -f $netshStatus, $hwStatus) -ForegroundColor Yellow;" ^
  "    if (-not $isHwEnabled) { Write-Host 'Рекомендуется включить RSS или увеличить количество очередей.' -ForegroundColor Gray }" ^
  "}"
 
