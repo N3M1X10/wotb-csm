@@ -667,13 +667,13 @@ powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command ^
     "    while ($true) {" ^
     "        $Host.UI.RawUI.CursorPosition = $startPos;" ^
     "        for ($i = 0; $i -lt $Items.Count; $i++) {" ^
-    "            $currentItem = $Items[$i]; $text = $currentItem.Game + ' (' + $currentItem.Path + ')';" ^
+    "            $currentItem = $Items[$i]; $text = if($currentItem.Path){ $currentItem.Game + ' (' + $currentItem.Path + ')' } else { $currentItem.Game };" ^
     "            if ($i -eq $idx) {" ^
-    "                Write-Host '» ' -NoNewline -ForegroundColor Yellow;" ^
-    "                Write-Host $text -ForegroundColor Cyan" ^
+    "                Write-Host '»' -NoNewline -ForegroundColor Yellow;" ^
+    "                Write-Host '[96m'$text" ^
     "            } else {" ^
-    "                Write-Host '  ' -NoNewline;" ^
-    "                Write-Host $text -ForegroundColor DarkBlue" ^
+    "                Write-Host ' ' -NoNewline;" ^
+    "                Write-Host '[36m'$text" ^
     "            }" ^
     "        }" ^
     "        $key = $Host.UI.RawUI.ReadKey('NoEcho,IncludeKeyDown');" ^
@@ -701,8 +701,9 @@ powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command ^
     "    }" ^
     "}" ^
     "if ($foundPaths.Count -eq 0) { Write-Host 'Игры не найдены.' -ForegroundColor Red; exit }" ^
-    "$sel = if ($foundPaths.Count -eq 1) { $foundPaths[0] } else { Show-ConsoleMenu -Title 'Выберите версию игры стрелочками:' -Items $foundPaths };" ^
-    "if ($sel) {" ^
+    "$foundPaths += [PSCustomObject]@{ Game='[91m[ ОТМЕНА ]'; Path=$null };" ^
+    "$sel = Show-ConsoleMenu -Title 'Выберите версию игры или выход:' -Items $foundPaths;" ^
+    "if ($sel -and $sel.Path) {" ^
     "    if (Get-Process $sel.Game -ErrorAction SilentlyContinue) { Write-Host 'Игра уже запущена.' -ForegroundColor Yellow; exit }" ^
     "    $lp = Get-LauncherPath $sel.LName $sel.LExe;" ^
     "    if (-not (Get-Process $sel.LProc -ErrorAction SilentlyContinue)) {" ^
@@ -714,7 +715,7 @@ powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command ^
     "    } else {" ^
     "        Write-Host 'Лаунчер активен. Запуск...' -ForegroundColor Green; Start-Process $sel.Path" ^
     "    }" ^
-    "}"
+    "} else { exit }"
 
 rem >nul timeout /t 2
 goto endfunc
