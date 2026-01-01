@@ -3,9 +3,10 @@ chcp 65001>nul
 
 :: Source: https://github.com/N3M1X10/wotb-csm
 
+:request-admin-rights
 set adm_arg=%1
 if "%adm_arg%" == "admin" (
-title wotb-csm (admin^)
+    title admin
 ) else (
     echo [93m[powershell] Requesting admin rights...
     powershell -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command "Start-Process 'cmd.exe' -ArgumentList '/k \"\"%~f0\" admin\"' -Verb RunAs"
@@ -37,7 +38,7 @@ echo [96mc / clean - Почистить файлы конфигурации[0m
 echo [96mreset - сбросить данные WOTB[0m
 echo [96mping - Измерить задержку до кластеров[0m
 echo [96md / diag - Провести диагностику сети[0m
-echo [96mnf / net-flush - Провести профилактику сети[0m
+echo [96mnr / net-reset - Провести сброс сетевого стэка системы[0m
 echo [96ms / stat - Узнать состояние правил[0m
 echo [96mf / wf - Открыть монитор Windows Firewall[0m
 echo [96mh / help / git - Перейти на страницу GitHub[0m
@@ -66,18 +67,18 @@ if "%select%"=="p"    goto start-wotb
 if "%select%"=="kill" goto kill-wotb
 if "%select%"=="k"    goto kill-wotb
 
-if "%select%"=="c"     call :flush-wotb-config & goto endfunc
-if "%select%"=="clean" call :flush-wotb-config & goto endfunc
+if "%select%"=="c"     call :wotb-cleaner-setup & goto endfunc
+if "%select%"=="clean" call :wotb-cleaner-setup & goto endfunc
 
-if "%select%"=="reset" call :flush-wotb-config "entire" & goto endfunc
+if "%select%"=="reset" call :wotb-cleaner-setup "entire" & goto endfunc
 
 if "%select%"=="ping" goto check-ping
 
 if "%select%"=="d"    cls & call :network-diagnostics & goto endfunc
 if "%select%"=="diag" cls & call :network-diagnostics & goto endfunc
 
-if "%select%"=="nf"        cls & call :net-flush & goto endfunc
-if "%select%"=="net-flush" cls & call :net-flush & goto endfunc
+if "%select%"=="nr"        cls & call :net-reset & goto endfunc
+if "%select%"=="net-reset" cls & call :net-reset & goto endfunc
 
 if "%select%"=="s"    goto :rules-status
 if "%select%"=="stat" goto :rules-status
@@ -96,22 +97,31 @@ if "%select%"=="x"     goto close
 if "%select%"=="end"   goto close
 if "%select%"=="close" goto close
 
+rem start /b "" mshta vbscript:Execute("CreateObject(""WScript.Shell"").Popup ""Ошибка. Команда не распознана"", 1, ""%~nx0"", 16:close")
+rem powershell -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command "(New-Object -ComObject WScript.Shell).Popup('Ошибка : Команда не распознана', 2, '%~n0%~x0', 16)">nul
 goto ask
 
 
 :: Поиск необходимых файлов
 :check-ranges-file
 set "ranges_file=%~dp0lists\ip_map.txt"
-if not exist "%ranges_file%" (
-    echo [91mОшибка: Файл IP диапазонов не найден^^![0m
-    goto endfunc
+if "%~1"=="silent" (exit/b)
+if not exist "!ranges_file!" (
+    echo.
+    if "%~1" neq "update" (
+        echo [91mОшибка: Файл IP диапазонов не найден^^![0m
+        echo [96m [i] Запустите обновление диапазонов в главном меню[0m
+    )
+    echo [93mФайл IP диапазонов не найден^^![0m
 )
 exit /b
 
 :check-domains-file
 set "domains_file=%~dp0lists\domains.txt"
-if not exist "%domains_file%" (
-    echo [91mОшибка: Файл доменов не найден^^! [0m
+if not exist "!domains_file!" (
+    echo.
+    echo [91mОшибка: Файл доменов не найден^^![0m
+    echo [93mОткройте страницу на github и скачайте новый репозиторий оттуда. Либо создайте новый файл, рядом с этим сценарием (по пути: [96m!domains_file![93m^), и поместите в него свой список доменов кластеров[0m
     goto endfunc
 )
 exit /b
@@ -122,21 +132,19 @@ exit /b
 cls
 echo [96m[ [93m- - - Обновление списка диапазонов - - - [96m][0m
 call :check-rules
-if !rules_count! lss 1 (
+if "!errorlevel!" lss "1" (
     rem dn
 ) else (
     choice /C "10" /m "[93m[?] Подтвердите [91mвременную разблокировку [93mправил в брандмауэре[0m"
     if "!errorlevel!"=="1" (echo [90mподтверждено[0m)
     if "!errorlevel!"=="2" (goto ask)
-
-    rem call :unblock-all
 )
 
 :: Запуск обновления данных
-echo [36m
-call :check-ranges-file
+call :check-ranges-file "update"
 call :check-domains-file
 
+echo [36m
 powershell -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command ^
     "Get-Job | Remove-Job -Force -ErrorAction SilentlyContinue;" ^
     "$domainsFile = '%domains_file%';" ^
@@ -209,22 +217,31 @@ echo [90mПытаюсь создать правила...[0m
 :: Читаем файл и создаем правила
 :: %%a - домен (имя правила), %%b - диапазон (IP/CIDR)
 call :check-ranges-file
-for /f "usebackq tokens=1,2 delims=:" %%a in ("%ranges_file%") do (
-    
-    :: Добавляем новое правило
-    netsh advfirewall firewall add rule name="%%a_block" description=%rule_description% dir=out action=block remoteip=%%b >nul 2>&1
-    if !errorlevel! neq 0 (
-        echo [91mОшибка создания правила[0m
-    ) else (
-        echo [92m[+] [93mСоздано правило: %%a [%%b][0m
+if exist "%ranges_file%" (
+    for /f "usebackq tokens=1,2 delims=:" %%a in ("%ranges_file%") do (
+        
+        :: Добавляем новое правило
+        netsh advfirewall firewall add rule name="%%a_block" description=%rule_description% dir=out action=block remoteip=%%b >nul 2>&1
+        if !errorlevel! neq 0 (
+            echo [91mОшибка создания правила[0m
+        ) else (
+            echo [92m[+] [93mСоздано правило: %%a [%%b][0m
+        )
     )
+    echo [90mГотово[0m
+) else (
+    echo [90mНет файла с диапазонами[0m
 )
-echo [90mГотово[0m
+
 
 echo.
 echo [101;93m[i] ПРОЧТИ МЕНЯ ^^!^^!^^![0m
-echo [36m[*] Когда правила создадутся - они сразу заблокируют подключения по своим доменам[0m
-echo [36m[*] Разблокируй их в главном меню[0m
+echo [93m[*] [36mКогда правила создадутся - они сразу заблокируют подключения по своим доменам[0m
+echo [93m[*] [36mВыбери, которые тебе нужны и разблокируй в - главном меню[0m
+echo.
+echo [93m[*] [36mТакже удалены исключения и системные правила-допуски.[0m
+echo [93m[*] [36mЭто в теории может вызвать инициализацию сетевой части игры.[0m
+echo [36mА вдруг? :D[0m
 goto endfunc
 
 
@@ -254,49 +271,40 @@ echo [90mГотово[0m
 exit /b
 
 
-
 :block-all
-call :check-rules
-if !rules_count! lss 1 (echo Правила блокировки не найдены& exit /b)
-call :check-ranges-file
-for /f "usebackq tokens=1,2 delims=:" %%a in ("%ranges_file%") do (
-    echo [90mБлокировка: %%a [%%b][0m
-    netsh advfirewall firewall set rule name="%%a_block" dir=out new enable=yes >nul 2>&1
-)
-echo Все кластеры заблокированы^^!
-exit /b
-
-
+call :change-all "block"
+exit/b
 
 :unblock-all
-call :check-rules
-if !rules_count! lss 1 (echo Правила блокировки не найдены& exit /b)
-call :check-ranges-file
-for /f "usebackq tokens=1,2 delims=:" %%a in ("%ranges_file%") do (
-    echo [90mРазблокировка: %%a [%%b][0m
-    netsh advfirewall firewall set rule name="%%a_block" dir=out new enable=no >nul 2>&1
-)
-echo Все кластеры разблокированы^^!
-exit /b
+call :change-all "unblock"
+exit/b
 
 
-
-:check-rules
-set rules_count=0
-call :check-ranges-file
-for /f "usebackq tokens=1,2 delims=:" %%a in ("%ranges_file%") do (
-    netsh advfirewall firewall show rule name="%%a_block" >nul 2>&1
-    if !errorlevel! equ 0 (
-        set /a rules_count+=1
-    )
-)
-if "!rules_count!" geq "1" (
-    :: Правила найдены
-    exit /b 1
+:change-all
+if "%~1"=="block" (
+    set msg=Блокировка
+    set act=yes
+) else if "%~1"=="unblock" (
+    set msg=Разблокировка
+    set act=no
 ) else (
-    :: Правила не найдены
-    exit /b 0
+    echo Ошибка изменения всех правил
+    exit/b
 )
+
+call :check-rules
+if "!errorlevel!"=="0" (exit/b)
+call :check-ranges-file
+if exist "!ranges_file!" (
+    for /f "usebackq tokens=1,2 delims=:" %%a in ("%ranges_file%") do (
+        echo [90m!msg!: %%a [%%b][0m
+        netsh advfirewall firewall set rule name="%%a_block" dir=out new enable=!act! >nul 2>&1
+    )
+    echo [90mГотово[0m
+) else (
+    echo [90mНет файла с диапазонами[0m
+)
+exit /b
 
 
 
@@ -480,10 +488,40 @@ goto endfunc
 
 
 
+:check-rules
+echo [90mпроверка правил...[0m
+call :check-ranges-file "silent"
+set rules_count=0
+if exist "%ranges_file%" (
+    for /f "usebackq tokens=1,2 delims=:" %%a in ("%ranges_file%") do (
+        netsh advfirewall firewall show rule name="%%a_block" >nul 2>&1
+        if !errorlevel! equ 0 (
+            set /a rules_count+=1
+        )
+    )
+)
+if "!rules_count!" geq "1" (
+    echo [90mправила найдены[0m
+    exit /b 1
+) else (
+    echo [90mправила не найдены[0m
+    exit /b 0
+)
+
+
+
 :check-ping
 cls
 echo [96m[ [93m- - - ПРОВЕРКА ЗАДЕРЖКИ КЛАСТЕРОВ (PING) - - - [96m][0m
 
+call :check-rules
+if "!errorlevel!" lss "1" (
+    rem dn
+) else (
+    choice /C "10" /m "[93m[?] Подтвердите [91mвременную разблокировку [93mправил в брандмауэре[0m"
+    if "!errorlevel!"=="1" (echo [90mподтверждено[0m)
+    if "!errorlevel!"=="2" (goto ask)
+)
 call :check-domains-file
 
 echo.
@@ -527,7 +565,7 @@ goto endfunc
 
 
 
-:flush-wotb-config
+:wotb-cleaner-setup
 cls
 if "%~1"=="entire" (
     echo [93m[ [91mСброс WOTB [93m][0m
@@ -537,13 +575,13 @@ if "%~1"=="entire" (
     if "!errorlevel!"=="2" (goto ask)
 
 ) else (
-    echo [93m[ Деликатная стирка кэша WOTB ][0m
+    echo [94m[ [96m- - - Деликатная стирка кэша WOTB - - - [94m][0m
 )
 
 
 echo [90m&echo Завершаю игру, если она была открыта...
 set "exeToStart="
-for /f "usebackq delims=" %%p in (`powershell -NoProfile -ExecutionPolicy Bypass -Command ^
+for /f "usebackq delims=" %%p in (`powershell -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command ^
     "$data = @('TanksBlitz;TanksBlitz.exe;*Tanks Blitz*', 'WoTBlitz;wotblitz.exe;*World_of_Tanks_Blitz*');" ^
     "foreach ($line in $data) {" ^
     "    $entry = $line.Split(';');" ^
@@ -561,8 +599,8 @@ for /f "usebackq delims=" %%p in (`powershell -NoProfile -ExecutionPolicy Bypass
     "    }" ^
     "}"`) do set "exeToStart=%%p"
 
-echo [90m
-echo Ищу папки с кэшем игр...
+echo [90mЗаклинаю разработчиков игры, чтобы начали оптимизировать её...[0m
+echo [90mИщу папки с кэшем игр...[0m
 :: Извлекаем путь к Документам из реестра
 for /f "tokens=2*" %%a in ('reg query "HKCU\Software\Microsoft\Windows\CurrentVersion\Explorer\User Shell Folders" /v Personal') do set "ActualDocs=%%b"
 :: Разворачиваем переменные среды (если путь содержит %USERPROFILE%)
@@ -570,15 +608,23 @@ for /f "delims=" %%i in ('echo %ActualDocs%') do set "docs=%%i"
 
 set "cis_wotb_path=!docs!\TanksBlitz\"
 set "eu_wotb_path=%LOCALAPPDATA%\wotblitz\DAVAProject\"
+rem echo.
+rem echo [90mcis: "!cis_wotb_path!"[0m
+rem echo [90meu: "!eu_wotb_path!"[0m
 
-echo.
-echo [90mcis: "!cis_wotb_path!"[0m
-echo [90meu: "!eu_wotb_path!"[0m
+if not exist "!cis_wotb_path!" (
+    echo [91m[^!] Ошибка. Папка кэша игры (tanksblitz^) не найдена
+) else (
+    set title=Tanks Blitz
+    call :wotb-cleaner "%~1" "!cis_wotb_path!"
+)
 
-set title=Tanks Blitz
-call :wotb-cleaner "%~1" "!cis_wotb_path!"
-set title=WoT Blitz
-call :wotb-cleaner "%~1" "!eu_wotb_path!"
+if not exist "!eu_wotb_path!" (
+    echo [91m[^!] Ошибка. Папка кэша игры (wotblitz^) не найдена
+) else (
+    set title=WoT Blitz
+    call :wotb-cleaner "%~1" "!eu_wotb_path!"
+)
 
 if defined exeToStart (
     echo.
@@ -589,52 +635,78 @@ if defined exeToStart (
 exit /b
 
 
+
 :wotb-cleaner
-echo.&echo [101;93m[ !title! ][0m
+echo.&echo [104;96m[ !title! ][0m
 set "wotb_path=%~2"
 if "%~1"=="entire" (
     rd /q /s "!wotb_path!"
-    echo [90m
-    echo Полный сброс завершён
-
-) else (
-    echo [90m
-    echo удаляем кэш, в корне папки
-    cd /d "!wotb_path!"
-
-    echo [90m
-    echo удалям файлики
-    for %%f in (startupOptions.* optionsGlobal.*) do (
-        del /f /q "%%f"
-        echo [90m * файл : "%%f" - удалён[0m
-    )
-
-    rem echo.
-    rem echo удаляем папки
-    rem for %%f in (region_cache shader_cache) do (
-    rem     if exist "%%f" (rd /q /s "%%f")
-    rem     echo [90m * папка : "%%f" - удалена[0m
-    rem )
-
-    echo [90m
-    echo чистим кэш внутри папок
-    cd /d "cache"
     echo.
-    echo удалям файлики
-    for %%f in (base_stuff_*.dat) do (
-        del /f /q "%%f"
-        echo [90m * файл : "%%f" - удалён[0m
-    )
+    echo [90mПолный сброс завершён
+) else (
+    echo.
+    echo [94m[ [36mудаляем кэш, в корне папки [94m][0m
+    cd /d "!wotb_path!
+    call :cycle-delete "startupOptions.*;optionsGlobal.*" "files"
+    call :cycle-delete "region_cache;image_cache" "folders"
+
+    echo.
+    echo [94m[ [36mчистим кэш внутри папок [94m][0m
+    cd /d "cache"
+    call :cycle-delete "base_stuff_*.dat;base stuff.dat;sus amogus.dat" "files"
 )
 exit /b
 
 
 
+:cycle-delete
+echo.
+::setup
+set count=0
+set "array=%~1"
+set "type=%~2"
+rem echo ARRAY: "[96m!array![0m"
+rem echo TYPE: "[96m!type![0m"
+::array check
+if not defined array (
+    echo [91m[^^!] Ошибка. Файлы в вызове не были определены (а что удаляем то?^)[0m
+    exit/b
+)
+::type check
+if "!type!"=="files" (
+    echo [100;30m[ удаляем файлики ][0m
+) else if "!type!"=="folders" (
+    echo [100;30m[ удаляем папки ][0m
+) else (
+    echo [91m[^^!] Ошибка. Не удалось определить тип данных в вызове ("!type!" - не знаю: папки это или файлы^)[0m
+    exit /b
+)
+::cleaner
+set array="!array:;=" "!"
+for %%t in (!array!) do (
+    set item=%%~t
+    rem echo our tar: "[96m!item![0m"
+    if exist "!item!" (
+        set /a count+=1
+        if "!type!"=="files" (
+            del /f /q "!item!"
+            echo [90m * файл : "!item!" - удалён[0m
+        ) else if "!type!"=="folders" (
+            rd /q /s "!item!"
+            echo [90m * папка : "!item!" - удалена[0m
+        )
+    )
+)
+if "!count!" lss "1" (echo [90m[ ничего не найдено ][0m)
+exit/b
+
+
+
 :start-wotb
 cls
-echo [93m[ Запуск WOTB ][0m
+echo [92m[ [93m- - - Запуск WOTB - - - [92m][0m
 echo.
-echo [90mПробую запустить игру...[0m
+echo [90mПробую запустить либо найти игры (tanksblitz/wotblitz)...[0m
 powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command ^
     "$apps = @(" ^
     "    @{ name='TanksBlitz'; exe='TanksBlitz.exe'; search='*Tanks Blitz*'; lName='Lesta Game Center'; lExe='lgc.exe'; lProc='lgc'; lTitle='Lesta Game Center' }," ^
@@ -657,7 +729,7 @@ powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command ^
     "    while ($timer.Elapsed.TotalSeconds -lt 40) {" ^
     "        $p = Get-Process $proc -ErrorAction SilentlyContinue | Where-Object { $_.MainWindowHandle -ne 0 };" ^
     "        if ($p) {" ^
-    "            Start-Sleep -m 200;" ^
+    "            Start-Sleep -m 1000;" ^
     "            $type::PostMessage($p.MainWindowHandle, 0x0112, 0xF060, [IntPtr]::Zero);" ^
     "            return $true" ^
     "        }" ^
@@ -764,7 +836,7 @@ echo [93m[i] [36mЭтот процесс может занять некото�
 echo.
 sc query | findstr /I "VPN">nul
 if !errorlevel!==0 (
-    echo [91m[^^!] Обнаружены службы VPN. [93mМогут влиять на пинг, если они в активном состоянии
+    echo [91m[^^!] Обнаружены службы VPN. [93mМогут влиять на пинг, если они в активном состоянии[0m
     sc query | findstr /I "VPN"
 ) else (
     echo [ok] VPN
@@ -820,22 +892,36 @@ echo.
 powershell -NoProfile -Command ^
  "$iface = Get-NetIPInterface -AddressFamily IPv4 | Where-Object { $_.ConnectionState -eq 'Connected' -and (Get-NetIPAddress -InterfaceIndex $_.InterfaceIndex).IPv4DefaultGateway } | Select-Object -First 1;" ^
  "if ($iface.NlMtu -lt 1500) {" ^
-     "Write-Host ('[91m[^!] Низкий MTU: {0} (норма 1500). Возможна фрагментация пакетов.[0m' -f $iface.NlMtu);" ^
+     "Write-Host ('[91m[^!] Low MTU: {0} (норма 1500). Возможна фрагментация пакетов.[0m' -f $iface.NlMtu);" ^
  "} else {" ^
-     "Write-Host ('[0m[ok] MTU в норме: {0}[0m' -f $iface.NlMtu);" ^
+     "Write-Host ('[0m[ok] MTU is normal: {0}[0m' -f $iface.NlMtu);" ^
  "}"
 
 :: Проверка задержки DNS-сервера
 echo.
 powershell -NoProfile -Command ^
- "$dns = (Get-DnsClientServerAddress -AddressFamily IPv4 | Where-Object { $_.ServerAddresses -ne $null } | Select-Object -ExpandProperty ServerAddresses)[0];" ^
- "Write-Host ('[*] Тестируем DNS-сервер: {0}' -f $dns);" ^
- "$t = Measure-Command { $res = Resolve-DnsName google.com -Server $dns -ErrorAction SilentlyContinue -DnsOnly };" ^
- "if ($t.TotalMilliseconds -gt 150 -or $null -eq $res) {" ^
-    "Write-Host ('[91m[^!] Медленный DNS или нет ответа: {0:N0} мс. Рекомендуется сменить ^(например 8.8.8.8 или 1.1.1.1^)[0m' -f $t.TotalMilliseconds)" ^
- "} else {" ^
-    "Write-Host ('[0m[ok] DNS Response: {0:N0} ms[0m' -f $t.TotalMilliseconds)" ^
- "}"
+ "Write-Host 'Checking DNS latency...';" ^
+ "$servers = Get-DnsClientServerAddress | Where-Object { $_.ServerAddresses -ne $null } | Select-Object -ExpandProperty ServerAddresses -Unique;" ^
+ "foreach ($dns in $servers) {" ^
+    "Write-Host ('[*] {0,-25}' -f $dns) -NoNewline;" ^
+    "try {" ^
+        "$addr = [System.Net.IPAddress]::Parse($dns);" ^
+        "$socket = New-Object System.Net.Sockets.TcpClient($addr.AddressFamily);" ^
+        "$sw = [Diagnostics.Stopwatch]::StartNew();" ^
+        "$connect = $socket.BeginConnect($addr, 53, $null, $null);" ^
+        "if ($connect.AsyncWaitHandle.WaitOne(200)) {" ^
+            "$socket.EndConnect($connect);" ^
+            "Clear-DnsClientCache;" ^
+            "$res = Resolve-DnsName google.com -Server $dns -DnsOnly -ErrorAction SilentlyContinue;" ^
+            "$ms = $sw.Elapsed.TotalMilliseconds;" ^
+            "if ($res) {" ^
+                "if ($ms -gt 150) { Write-Host ('[91mSLOW ({0:N0} ms)[0m' -f $ms) } else { Write-Host ('[92mOK ({0:N0} ms)[0m' -f $ms) }" ^
+            "} else { Write-Host '[91mDNS FAIL[0m' }" ^
+        "} else { Write-Host '[90mDEAD[0m' }" ^
+        "$sw.Stop(); $socket.Close();" ^
+    "} catch { Write-Host '[91mINVALID[0m' }" ^
+ "} 2>$null"
+
 
 :: Проверка на подмену DNS (Hijacking)
 echo.
@@ -1016,32 +1102,42 @@ exit /b
 
 
 
-:net-flush
+:net-reset
 cls
-echo [93m[ Сетевая профилактика ][0m
+echo [93m[ Сетевой сброс ][0m
+echo.
+echo [93m[i] ВНИМАНИЕ Данная операция призвана устранить проблемы с сетью, но также может сбить настройки твикеров, которые могли быть применены для оптимизации. Прошу обратить внимание на это перед выполнением операции.[0m
 echo.
 
-:: base reset
-echo NETSH WINSOCK RESET...
-netsh winsock reset >nul
-echo NETSH INT IP RESET...
-netsh int ip reset >nul
-echo IPCONFIG IPV4...
-ipconfig /release >nul
-ipconfig /renew >nul
+choice /C "YN" /m "[93m[?] Вы уверены что хотите [91mСБРОСИТЬ [93mсетевые параметры в системе?[0m"
+if "!errorlevel!"=="1" (echo [90mподтверждено[0m)
+if "!errorlevel!"=="2" (goto ask)
 
-:: extended reset
-echo RENEW EL...
-ipconfig /renew EL >nul
-echo IPCONFIG IPV6...
-ipconfig /release6 >nul
-ipconfig /renew6 >nul
+echo.
+echo [^>] Возврат к заводским настройкам Windows ...
 
-:: dns reset
-echo IPCONFIG FLUSHDNS...
+:: Очистка DNS
 ipconfig /flushdns >nul
-echo IPCONFIG REGDNS...
-ipconfig /registerdns >nul
+:: Сброс IP/TCP
+netsh int ip reset >nul
+netsh int tcp reset >nul
+:: Сброс Winsock
+netsh winsock reset >nul
+:: Cброс шаблонов TCP
+netsh int tcp set supplemental template=internet setup
+netsh int tcp set global autotuninglevel=normal
+:: Удаляем пользовательские реестровые ключи
+reg delete "HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Multimedia\SystemProfile" /v NetworkThrottlingIndex /f >nul
+reg delete "HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Multimedia\SystemProfile" /v SystemResponsiveness /f >nul
+reg delete "HKLM\SYSTEM\CurrentControlSet\Services\Tcpip\Parameters" /v MaxUserPort /f >nul
+reg delete "HKLM\SYSTEM\CurrentControlSet\Services\Tcpip\Parameters" /v TcpMaxDataRetransmissions /f >nul
+for /F "tokens=1,2*" %%i in ('reg query HKLM\SYSTEM\CurrentControlSet\Services\Tcpip\Parameters\Interfaces /s ^| findstr /I "Interface"') do (
+    reg delete "%%j" /v TcpAckFrequency /f 2>nul
+    reg delete "%%j" /v TCPNoDelay /f 2>nul
+    reg delete "%%j" /v TcpDelAckTicks /f 2>nul
+)
+
+echo Сброс завершён. Перезагрузите компьютер, чтобы изменения вступили в силу.
 exit /b
 
 
