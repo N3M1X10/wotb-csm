@@ -102,8 +102,10 @@ rem powershell -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -Comma
 goto ask
 
 
+
 :: Поиск необходимых файлов
 :check-ranges-file
+if "%~1" neq "silent" (echo [90mищу файл с диапазонами...[0m)
 set "ranges_file=%~dp0lists\ip_map.txt"
 if "%~1"=="silent" (exit/b)
 if not exist "!ranges_file!" (
@@ -113,16 +115,22 @@ if not exist "!ranges_file!" (
         echo [96m [i] Запустите обновление диапазонов в главном меню[0m
     )
     echo [93mФайл IP диапазонов не найден^^![0m
+) else (
+    echo [90mесть[0m
 )
 exit /b
 
 :check-domains-file
+if "%~1" neq "silent" (echo [90mищу файл с доменами...[0m)
 set "domains_file=%~dp0lists\domains.txt"
+if "%~1"=="silent" (exit/b)
 if not exist "!domains_file!" (
     echo.
     echo [91mОшибка: Файл доменов не найден^^![0m
     echo [93mОткройте страницу на github и скачайте новый репозиторий оттуда. Либо создайте новый файл, рядом с этим сценарием (по пути: [96m!domains_file![93m^), и поместите в него свой список доменов кластеров[0m
     goto endfunc
+) else (
+    echo [90mесть[0m
 )
 exit /b
 
@@ -300,10 +308,12 @@ if "%~1"=="block" (
 )
 
 call :check-rules
-rem if "!errorlevel!"=="0" (exit/b)
-call :check-ranges-file "silent"
+if "!errorlevel!"=="0" (exit/b)
+call :check-ranges-file
 
 if exist "!ranges_file!" (
+    echo [90mЗапускаю перебор всех правил...[0m
+
     (
         cmd /d /v:on /c "for /f "usebackq tokens=1,2 delims=:" %%a in ("!ranges_file!") do @echo advfirewall firewall set rule name="%%a_block" dir=out new enable=!act!"
     ) 2>nul | netsh >nul 2>&1
@@ -333,15 +343,16 @@ if "%act%"=="block" (
     set rule_state=no
 )
 
-call :check-ranges-file
-call :draw-clusters-list
-
-if %count%==0 (
-    echo [91m[^^!] Правила еще не созданы. Запустите создание правил[0m
+call :check-rules "silent" && if "!errorlevel!" neq "0" (
+    echo [91m[i] Правила не найдены. [93mСначала создайте правила через соответствующий пункт меню.[0m
     goto endfunc
 )
+call :check-ranges-file "silent"
 
+
+call :draw-clusters-list
 echo.
+:cluster-manager-choice
 :: Формируем строку допустимых символов для choice
 set "keys=0"
 for /L %%i in (1,1,%count%) do (
@@ -357,7 +368,6 @@ for /L %%i in (1,1,%count%) do (
     )
 )
 
-:cluster-manager-choice
 set "c_idx="
 choice /C:%keys% /N /M "[93m[?] Выберите номер или букву [96m(0 для выхода)[93m: "
 set /a c_idx=%ERRORLEVEL%
@@ -366,27 +376,24 @@ set /a c_idx=%ERRORLEVEL%
 if "%c_idx%"=="1" goto ask
 
 :: Корректируем индекс для массива (ERRORLEVEL в choice начинается с 1)
-:: Так как 0 — это 1-й символ, то для %%i=1 индекс ERRORLEVEL будет 2.
 set /a c_choice=%c_idx%-1
 
 :: Извлекаем данные по индексу
 set "sel_domain=!cluster[%c_choice%]!"
-set "sel_status=!status[%c_choice%]!"
-
 
 :: ПРОВЕРКА: Если правило не существует
-if "%sel_status%"=="NotExist" (
+if "!status!"=="NotExist" (
     echo.
     echo [91m[^^!^^!^^!] Ошибка: Правило для [96m!sel_domain! [91mне найдено в Брандмауэре.[0m
     echo [93m[i] Сначала создайте правила через соответствующий пункт меню.[0m
-    goto endfunc
 )
 
 :: Изменяем правило
 netsh advfirewall firewall set rule name="!sel_domain!_block" dir=out new enable=%rule_state% >nul 2>&1
 :: Проверка ошибок
 if %errorlevel% neq 0 (
-    echo [91mОшибка при применении правила netsh для !sel_domain![0m
+    echo [90m[i] Ошибка при применении правила netsh для: "!sel_domain!"[0m
+
 ) else (
     cls
     echo !func_title!
@@ -394,9 +401,9 @@ if %errorlevel% neq 0 (
     call :draw-clusters-list
     echo.
     if "%act%"=="block" (
-        echo [92mКластер [96m!sel_domain! [92mзаблокирован^^![0m
+        echo [91m [▢] [93mКластер [96m!sel_domain! [93mзаблокирован^^![0m
     ) else (
-        echo [92mКластер [96m!sel_domain! [92mразблокирован^^![0m
+        echo [92m [~] [93mКластер [96m!sel_domain! [93mразблокирован^^![0m
     )
     echo.
 )
@@ -440,15 +447,15 @@ for /f "usebackq tokens=1 delims=:" %%a in ("%ranges_file%") do (
     set "cluster[!count!]=%%a"
     set "target=%%a_block"
     
-    set "current_status=NotExist"
+    set "status=NotExist"
     
     :: Проверка существования ключа в памяти (теперь без знака =)
     if defined fw_db_!target! (
         for /f "delims=" %%V in ("!target!") do (
             if /i "!fw_db_%%V!"=="TRUE" (
-                set "current_status=Enabled"
+                set "status=Enabled"
             ) else (
-                set "current_status=Disabled"
+                set "status=Disabled"
             )
         )
     )
@@ -460,45 +467,15 @@ for /f "usebackq tokens=1 delims=:" %%a in ("%ranges_file%") do (
     )
 
     :: Вывод строки
-    if "!current_status!"=="Enabled" (
+    if "!status!"=="Enabled" (
         echo [93m[!display_idx!] %%a [[91mБЛОКИРОВАН[93m][0m
-    ) else if "!current_status!"=="Disabled" (
+    ) else if "!status!"=="Disabled" (
         echo [93m[!display_idx!] %%a [[92mДОСТУПЕН[93m][0m
     ) else (
         echo [93m[!display_idx!] %%a [[90mПРАВИЛО НЕ НАЙДЕНО[93m][0m
     )
 )
 exit /b
-
-
-
-
-
-:restart
-cls
-endlocal
-cmd /c "%~f0" :
-exit
-
-
-
-:wf
-:: Запуск Windows Firewall...
-start WF.msc
-goto ask
-
-
-
-:github
-:: opening github
-explorer "https://github.com/N3M1X10/wotb-csm"
-goto ask
-
-
-
-:close
-endlocal
-exit
 
 
 
@@ -513,7 +490,7 @@ goto endfunc
 
 
 :check-rules
-echo [90mпроверка правил...[0m
+if "%~1" neq "silent" (echo [90mпроверка правил...[0m)
 call :check-ranges-file "silent"
 set rules_count=0
 if exist "%ranges_file%" (
@@ -524,6 +501,7 @@ if exist "%ranges_file%" (
         )
     )
 )
+if "%~1"=="silent" (exit/b)
 if "!rules_count!" geq "1" (
     echo [90mправила найдены[0m
     exit /b 1
@@ -642,7 +620,7 @@ rem echo [90meu: "!eu_wotb_path!"[0m
 
 if not exist "!cis_wotb_path!" (
     echo.
-    echo [91m[^^!] Ошибка. Папка кэша игры (tanksblitz^) не найдена
+    echo [91m[^^!] Ошибка доступа. [36mПапка кэша игры (tanksblitz^) не найдена
 ) else (
     set title=Tanks Blitz
     call :wotb-cleaner "%~1" "!cis_wotb_path!"
@@ -650,7 +628,7 @@ if not exist "!cis_wotb_path!" (
 
 if not exist "!eu_wotb_path!" (
     echo.
-    echo [91m[^^!] Ошибка. Папка кэша игры (wotblitz^) не найдена
+    echo [91m[^^!] Ошибка доступа. [36mПапка кэша игры (wotblitz^) не найдена
 ) else (
     set title=WoT Blitz
     call :wotb-cleaner "%~1" "!eu_wotb_path!"
@@ -1170,6 +1148,7 @@ echo Сброс завершён. Перезагрузите компьютер,
 exit /b
 
 
+
 :: end of a function
 :endfunc
 echo.&echo [36m[!time!] Выполнение завершено^^!
@@ -1179,3 +1158,25 @@ pause>nul&endlocal&cls
 goto :ask
 
 
+:restart
+cls
+endlocal
+cmd /c "%~f0" :
+exit
+
+
+:wf
+:: Запуск Windows Firewall...
+start WF.msc
+goto ask
+
+
+:github
+:: opening github...
+explorer "https://github.com/N3M1X10/wotb-csm"
+goto ask
+
+
+:close
+endlocal
+exit
