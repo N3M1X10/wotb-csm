@@ -641,14 +641,16 @@ rem echo [90mcis: "!cis_wotb_path!"[0m
 rem echo [90meu: "!eu_wotb_path!"[0m
 
 if not exist "!cis_wotb_path!" (
-    echo [91m[^!] Ошибка. Папка кэша игры (tanksblitz^) не найдена
+    echo.
+    echo [91m[^^!] Ошибка. Папка кэша игры (tanksblitz^) не найдена
 ) else (
     set title=Tanks Blitz
     call :wotb-cleaner "%~1" "!cis_wotb_path!"
 )
 
 if not exist "!eu_wotb_path!" (
-    echo [91m[^!] Ошибка. Папка кэша игры (wotblitz^) не найдена
+    echo.
+    echo [91m[^^!] Ошибка. Папка кэша игры (wotblitz^) не найдена
 ) else (
     set title=WoT Blitz
     call :wotb-cleaner "%~1" "!eu_wotb_path!"
@@ -675,13 +677,12 @@ if "%~1"=="entire" (
     echo.
     echo [94m[ [36mудаляем кэш, в корне папки [94m][0m
     cd /d "!wotb_path!
-    call :cycle-delete "startupOptions.*;optionsGlobal.*" "files"
-    call :cycle-delete "region_cache;image_cache" "folders"
-
+    call :cycle-delete "*.bin;*.yaml;*.archive;startupOptions.*;optionsGlobal.*;*.txt;*.log;*.bk" "files"
+    call :cycle-delete "region_cache;battle_results;clan;" "folders"
     echo.
     echo [94m[ [36mчистим кэш внутри папок [94m][0m
     cd /d "cache"
-    call :cycle-delete "base_stuff_*.dat;base stuff.dat;sus amogus.dat" "files"
+    call :cycle-delete "battle_results_extended_*;dossier_*;notif_queue_*;camo_*;*.bk" "files"
 )
 exit /b
 
