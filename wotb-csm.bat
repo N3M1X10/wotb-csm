@@ -27,15 +27,15 @@ echo [93mРаботаем с пачкой правил:[0m
 echo [96mba - Заблокировать все кластеры[0m
 echo [96muba - Разблокировать все кластеры[0m
 echo [93mСервисные операции с правилами:[0m
-echo [96m3 - Создать / обновить правила для блокировки кластеров[0m
-echo [96m4 - Удалить все правила для блокировки кластеров[0m
-echo [96m5 - Обновить диапазоны ip-адресов для блокировки[0m
+echo [96m3 - [92mСоздать [96m/ [92mОбновить [96mправила для блокировки кластеров[0m
+echo [96m4 - [91mУдалить [96mвсе правила для блокировки кластеров[0m
+echo [96m5 - [93mОбновить [96mдиапазоны ip-адресов для блокировки[0m
 echo.
 echo [93mПрочие опции:[0m
 echo [96mp / play - [92mзапустить WOTB[0m
 echo [96mk / kill - [91mЗакрыть всё связанное с WOTB[0m
-echo [96mc / clean - Почистить файлы конфигурации[0m
-echo [96mreset - сбросить данные WOTB[0m
+echo [96mc / clean - [93mПочистить кэш игры[0m
+echo [96mreset - [91mсбросить данные WOTB[0m
 echo [96mping - Измерить задержку до кластеров[0m
 echo [96md / diag - Провести диагностику сети[0m
 echo [96mnr / net-reset - Провести сброс сетевого стэка системы[0m
@@ -146,44 +146,42 @@ call :check-domains-file
 
 echo [36m
 powershell -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command ^
-    "Get-Job | Remove-Job -Force -ErrorAction SilentlyContinue;" ^
     "$domainsFile = '%domains_file%';" ^
     "$outputFile = '%ranges_file%';" ^
     "if (-not (Test-Path $domainsFile)) { exit 1 };" ^
-    "Write-Host 'Сохранение состояния и временное отключение правил брандмауэра...';" ^
     "$rules = Get-NetFirewallRule | Where-Object { $_.DisplayName -like '*tanksblitz*' };" ^
     "$backup = @{}; foreach($r in $rules) { $backup[$r.Name] = $r.Enabled };" ^
     "$rules | Set-NetFirewallRule -Enabled False;" ^
-    "Write-Host 'Запускаю обновление...';" ^
     "try {" ^
-        "$domains = Get-Content $domainsFile | Where-Object { $_ -match '\.' };" ^
-        "$jobs = foreach ($domain_name in $domains) {" ^
-            "Start-Job -ScriptBlock {" ^
-                "param($d_param);" ^
-                "$output = @();" ^
+        "$domains = Get-Content $domainsFile | Where-Object { $_ -match '\.' } | Select-Object -Unique;" ^
+        "$RunspacePool = [RunspaceFactory]::CreateRunspacePool(1, 15);" ^
+        "$RunspacePool.Open();" ^
+        "$Jobs = foreach ($d in $domains) {" ^
+            "$ps = [PowerShell]::Create().AddScript({" ^
+                "param($d);" ^
                 "try {" ^
-                    "$ips = [System.Net.Dns]::GetHostAddresses($d_param) | Where-Object { $_.AddressFamily -eq 'InterNetwork' };" ^
-                    "foreach ($ip in $ips) {" ^
-                        "$ipStr = $ip.IPAddressToString;" ^
-                        "$range = $ipStr.Substring(0, $ipStr.LastIndexOf('.')) + '.0/24';" ^
+                    "[System.Net.Dns]::GetHostAddresses($d) | Where-Object { [int]$_.AddressFamily -eq 2 } | ForEach-Object {" ^
+                        "$ip = $_.IPAddressToString;" ^
                         "try {" ^
-                            "$rdap = Invoke-RestMethod -Uri ('rdap.org' + $ipStr) -TimeoutSec 2 -UseBasicParsing -ErrorAction Stop;" ^
-                            "if ($rdap.cidr0_cidrs) { $range = $rdap.cidr0_cidrs[0].v4prefix + '/' + $rdap.cidr0_cidrs[0].length };" ^
-                        "} catch { };" ^
-                        "$output += $d_param + ':' + $range;" ^
-                    "};" ^
-                    "return $output;" ^
-                "} catch { return $d_param + ':Error' }" ^
-            "} -ArgumentList $domain_name" ^
+                            "$r = Invoke-RestMethod -Uri ('rdap.db.ripe.net' + $ip) -TimeoutSec 2 -UseBasicParsing;" ^
+                            "if ($r.cidr0_cidrs) { $d + ':' + $r.cidr0_cidrs.v4prefix + '/' + $r.cidr0_cidrs.length } " ^
+                            "else { $d + ':' + $ip.Substring(0, $ip.LastIndexOf('.')) + '.0/24' }" ^
+                        "} catch { $d + ':' + $ip.Substring(0, $ip.LastIndexOf('.')) + '.0/24' }" ^
+                    "}" ^
+                "} catch {}" ^
+            "}).AddArgument($d);" ^
+            "$ps.RunspacePool = $RunspacePool;" ^
+            "[PSCustomObject]@{ P = $ps; S = $ps.BeginInvoke() }" ^
         "};" ^
-        "Wait-Job $jobs -Timeout 15 | Out-Null;" ^
-        "$resultsRaw = Receive-Job $jobs;" ^
-        "$jobs | Stop-Job; $jobs | Remove-Job -Force;" ^
-        "if ($resultsRaw) {" ^
-            "$resultsRaw | Where-Object { $_ -ne $null -and $_ -notmatch 'Error' } | Select-Object -Unique | Out-File $outputFile -Encoding ascii;" ^
+        "do { Start-Sleep -Milliseconds 50 } while ($Jobs.S.IsCompleted -contains $false);" ^
+        "$res = foreach ($j in $Jobs) { $j.P.EndInvoke($j.S); $j.P.Dispose() };" ^
+        "$RunspacePool.Close();" ^
+        "if ($res) {" ^
+            "$res | Group-Object { $_.Split(':')[0] } | ForEach-Object {" ^
+                "$_.Name + ':' + (($_.Group | ForEach-Object { $_.Split(':')[1] } | Select-Object -Unique) -join ',')" ^
+            "} | Out-File $outputFile -Encoding ascii;" ^
         "}" ^
     "} finally {" ^
-        "Write-Host 'Восстановление состояния правил брандмауэра...';" ^
         "foreach($id in $backup.Keys) { Set-NetFirewallRule -Name $id -Enabled $backup[$id] };" ^
     "}"
 
@@ -195,7 +193,7 @@ for /f "usebackq tokens=1,2 delims=:" %%a in ("%ranges_file%") do (
     echo [36m%%a [%%b][0m
 )
 echo.
-echo Найденные домены сохранены (в [96m"%ranges_file%"[0m) и теперь вы можете просто создать новые правила, в брандмауэре, в главном меню^^![0m
+echo Найденные диапазоны сохранены (в [96m"%ranges_file%"[0m) и теперь вы можете просто создать новые правила, в брандмауэре, в главном меню^^![0m
 goto endfunc
 
 
@@ -242,6 +240,9 @@ echo.
 echo [93m[*] [36mТакже удалены исключения и системные правила-допуски.[0m
 echo [93m[*] [36mЭто в теории может вызвать инициализацию сетевой части игры.[0m
 echo [36mА вдруг? :D[0m
+echo.
+echo [93m[*] [36mТакже советую перезапустить игру после обновления правил. Так игра начнёт инициализацию в сети и пустит вас поиграть (если перестала пускать)[0m
+echo [93m[*] [36mГлавное не отклонить запрос от брандмауэра, на разрешение подключения приложения к сети[0m
 goto endfunc
 
 
@@ -271,6 +272,7 @@ echo [90mГотово[0m
 exit /b
 
 
+
 :block-all
 call :change-all "block"
 exit/b
@@ -279,14 +281,13 @@ exit/b
 call :change-all "unblock"
 exit/b
 
-
 :change-all
 if "%~1"=="block" (
-    set msg=Блокировка
-    set act=yes
+    set "msg=Блокировка"
+    set "act=yes"
 ) else if "%~1"=="unblock" (
-    set msg=Разблокировка
-    set act=no
+    set "msg=Разблокировка"
+    set "act=no"
 ) else (
     echo Ошибка изменения всех правил
     exit/b
@@ -295,11 +296,21 @@ if "%~1"=="block" (
 call :check-rules
 if "!errorlevel!"=="0" (exit/b)
 call :check-ranges-file
+
 if exist "!ranges_file!" (
+    :: Создаем временный файл со списком команд для netsh
+    set "tmp_cmds=%temp%\fw_cmds.txt"
+    if exist "!tmp_cmds!" del "!tmp_cmds!"
+    
     for /f "usebackq tokens=1,2 delims=:" %%a in ("%ranges_file%") do (
         echo [90m!msg!: %%a [%%b][0m
-        netsh advfirewall firewall set rule name="%%a_block" dir=out new enable=!act! >nul 2>&1
+        echo advfirewall firewall set rule name="%%a_block" dir=out new enable=!act! >> "!tmp_cmds!"
     )
+    
+    :: Один вызов netsh для обработки всех команд сразу
+    netsh -f "!tmp_cmds!" >nul 2>&1
+    if exist "!tmp_cmds!" del "!tmp_cmds!"
+    
     echo [90mГотово[0m
 ) else (
     echo [90mНет файла с диапазонами[0m
@@ -391,49 +402,74 @@ if %errorlevel% neq 0 (
 goto cluster-manager-choice
 
 
-:draw-clusters-list
-:: pwsh
-set ps_cmd=^
-$r_raw = Get-CimInstance -Namespace root/standardcimv2 -ClassName MSFT_NetFirewallRule -Filter 'DisplayName like \"%%tanksblitz%%\" or DisplayName like \"%%wotblitz%%\"' -ErrorAction SilentlyContinue; ^
-$r=@{}; if ($r_raw) { foreach($rule in $r_raw) { $r[$rule.DisplayName] = $rule.Enabled } }; ^
-$lines = [System.IO.File]::ReadAllLines('%ranges_file%'); ^
-foreach($l in $lines){ ^
-  $d=$l.Split(':')[0]; ^
-  $st='NotExist'; ^
-  if($r.ContainsKey($d + '_block')){ ^
-    $st = if($r[$d + '_block'] -eq 1){'Enabled'}else{'Disabled'} ^
-  }; ^
-  [Console]::WriteLine($d+':'+$st) ^
-}
 
+:draw-clusters-list
 set count=0
 set "map=ABCDEFGHIJKLMNOPQRSTUVWXYZ"
-:: Очистка массива перед заполнением
-for /f "tokens=1 delims==" %%v in ('set cluster[ 2^>nul') do set "%%v="
 
-for /f "usebackq tokens=1,2 delims=:" %%a in (`powershell -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command "%ps_cmd%" 2^>nul`) do (
+:: 1. Очистка кеша
+for /f "tokens=1 delims==" %%v in ('set cluster[ 2^>nul') do set "%%v="
+for /f "tokens=1 delims==" %%v in ('set status[ 2^>nul') do set "%%v="
+for /f "tokens=1 delims==" %%v in ('set "fw_db_" 2^>nul') do set "%%v="
+
+:: 2. Сбор данных из реестра (Исправленный парсинг знака =)
+for /f "tokens=2*" %%A in ('reg query "HKEY_LOCAL_MACHINE\SYSTEM\CurrentControlSet\Services\SharedAccess\Parameters\FirewallPolicy\FirewallRules" /f "_block" 2^>nul ^| findstr "_block"') do (
+    set "raw=%%B"
+    
+    :: Извлекаем Name и отрезаем лишний знак =
+    set "t_name=!raw:*Name=!"
+    for /f "tokens=1 delims=|" %%N in ("!t_name!") do (
+        set "v_name=%%N"
+        if "!v_name:~0,1!"=="=" set "v_name=!v_name:~1!"
+    )
+    
+    :: Извлекаем Active и отрезаем лишний знак =
+    set "t_act=!raw:*Active=!"
+    for /f "tokens=1 delims=|" %%S in ("!t_act!") do (
+        set "v_act=%%S"
+        if "!v_act:~0,1!"=="=" set "v_act=!v_act:~1!"
+    )
+    
+    if defined v_name set "fw_db_!v_name!=!v_act!"
+)
+
+:: 3. Отрисовка
+for /f "usebackq tokens=1 delims=:" %%a in ("%ranges_file%") do (
     set /a count+=1
     set "cluster[!count!]=%%a"
-    set "status[!count!]=%%b"
+    set "target=%%a_block"
     
-    :: Определяем, что выводить в квадратных скобках: цифру или букву
-    if !count! LSS 10 (
-        set "display_idx=!count!"
-    ) else (
+    set "current_status=NotExist"
+    
+    :: Проверка существования ключа в памяти (теперь без знака =)
+    if defined fw_db_!target! (
+        for /f "delims=" %%V in ("!target!") do (
+            if /i "!fw_db_%%V!"=="TRUE" (
+                set "current_status=Enabled"
+            ) else (
+                set "current_status=Disabled"
+            )
+        )
+    )
+
+    :: Индексация
+    if !count! LSS 10 (set "display_idx=!count!") else (
         set /a idx=!count!-10
         for /f "delims=" %%i in ("!idx!") do set "display_idx=!map:~%%i,1!"
     )
-    
-    :: Вывод строки меню
-    if "%%b"=="Enabled" (
-        echo [!display_idx!] %%a [[91mБЛОКИРОВАН[0m]
-    ) else if "%%b"=="Disabled" (
-        echo [!display_idx!] %%a [[92mДОСТУПЕН[0m]
+
+    :: Вывод строки
+    if "!current_status!"=="Enabled" (
+        echo [93m[!display_idx!] %%a [[91mБЛОКИРОВАН[93m][0m
+    ) else if "!current_status!"=="Disabled" (
+        echo [93m[!display_idx!] %%a [[92mДОСТУПЕН[93m][0m
     ) else (
-        echo [!display_idx!] %%a [[90mПРАВИЛО НЕ НАЙДЕНО[0m]
+        echo [93m[!display_idx!] %%a [[90mПРАВИЛО НЕ НАЙДЕНО[93m][0m
     )
 )
 exit /b
+
+
 
 
 
@@ -469,21 +505,8 @@ exit
 cls
 echo [96m[ [93m- - - СТАТУС ПРАВИЛ БЛОКИРОВКИ - - - [96m][0m
 echo.
-call :check-ranges-file
-powershell -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command ^
-    "$r_raw = Get-CimInstance -Namespace root/standardcimv2 -ClassName MSFT_NetFirewallRule -Filter 'DisplayName like \"%%tanksblitz%%\" or DisplayName like \"%%wotblitz%%\"' -ErrorAction SilentlyContinue;" ^
-    "$r = @{}; if ($r_raw) { foreach($rule in $r_raw) { $r[$rule.DisplayName] = $rule.Enabled } };" ^
-    "$lines = [System.IO.File]::ReadAllLines('%ranges_file%');" ^
-    "foreach($l in $lines){" ^
-        "$d = $l.Split(':')[0];" ^
-        "$ruleName = $d + '_block';" ^
-        "if($r.ContainsKey($ruleName)){" ^
-            "$status = if($r[$ruleName] -eq 1){'[91mБЛОКИРУЕТСЯ[0m'}else{'[92mДОСТУПЕН[0m'};" ^
-            "Write-Host ('{0} [{1}]' -f $d.PadRight(15), $status);" ^
-        "} else {" ^
-            "Write-Host ('{0} [[90mПРАВИЛО НЕ НАЙДЕНО[0m]' -f $d.PadRight(15));" ^
-        "}" ^
-    "}"
+call :check-ranges-file "silent"
+call :draw-clusters-list
 goto endfunc
 
 
