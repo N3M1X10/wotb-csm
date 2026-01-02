@@ -149,9 +149,14 @@ powershell -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command ^
     "$domainsFile = '%domains_file%';" ^
     "$outputFile = '%ranges_file%';" ^
     "if (-not (Test-Path $domainsFile)) { exit 1 };" ^
-    "$rules = Get-NetFirewallRule | Where-Object { $_.DisplayName -like '*tanksblitz*' };" ^
-    "$backup = @{}; foreach($r in $rules) { $backup[$r.Name] = $r.Enabled };" ^
-    "$rules | Set-NetFirewallRule -Enabled False;" ^
+    "Write-Host 'Сканирую и сохраняю статус правил...';" ^
+    "$rules = Get-CimInstance -Namespace root/standardcimv2 -ClassName MSFT_NetFirewallRule -Filter \"DisplayName like '%%tanksblitz%%'\" -ErrorAction SilentlyContinue;" ^
+    "$backup = @();" ^
+    "if ($rules) {" ^
+        "foreach($r in $rules) { if($r.Enabled -eq 1) { $backup += $r.InstanceID } };" ^
+        "Disable-NetFirewallRule -DisplayName '*tanksblitz*' -ErrorAction SilentlyContinue;" ^
+    "}" ^
+    "Write-Host 'Опрашиваю сервера...';" ^
     "try {" ^
         "$domains = Get-Content $domainsFile | Where-Object { $_ -match '\.' } | Select-Object -Unique;" ^
         "$RunspacePool = [RunspaceFactory]::CreateRunspacePool(1, 15);" ^
@@ -171,9 +176,9 @@ powershell -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command ^
                 "} catch {}" ^
             "}).AddArgument($d);" ^
             "$ps.RunspacePool = $RunspacePool;" ^
-            "[PSCustomObject]@{ P = $ps; S = $ps.BeginInvoke() }" ^
+            "@{ P = $ps; S = $ps.BeginInvoke() }" ^
         "};" ^
-        "do { Start-Sleep -Milliseconds 50 } while ($Jobs.S.IsCompleted -contains $false);" ^
+        "while ($Jobs.S.IsCompleted -contains $false) { Start-Sleep -Milliseconds 50 };" ^
         "$res = foreach ($j in $Jobs) { $j.P.EndInvoke($j.S); $j.P.Dispose() };" ^
         "$RunspacePool.Close();" ^
         "if ($res) {" ^
@@ -182,9 +187,11 @@ powershell -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command ^
             "} | Out-File $outputFile -Encoding ascii;" ^
         "}" ^
     "} finally {" ^
-        "foreach($id in $backup.Keys) { Set-NetFirewallRule -Name $id -Enabled $backup[$id] };" ^
+        "if ($backup) {" ^
+            "Write-Host 'Восстанавливаю правила...';" ^
+            "Enable-NetFirewallRule -Name $backup -ErrorAction SilentlyContinue;" ^
+        "}" ^
     "}"
-
 echo [0mГотово^^![0m
 
 echo.
@@ -276,7 +283,6 @@ exit /b
 :block-all
 call :change-all "block"
 exit/b
-
 :unblock-all
 call :change-all "unblock"
 exit/b
@@ -294,26 +300,21 @@ if "%~1"=="block" (
 )
 
 call :check-rules
-if "!errorlevel!"=="0" (exit/b)
-call :check-ranges-file
+rem if "!errorlevel!"=="0" (exit/b)
+call :check-ranges-file "silent"
 
 if exist "!ranges_file!" (
-    :: Создаем временный файл со списком команд для netsh
-    set "tmp_cmds=%temp%\fw_cmds.txt"
-    if exist "!tmp_cmds!" del "!tmp_cmds!"
-    
-    for /f "usebackq tokens=1,2 delims=:" %%a in ("%ranges_file%") do (
+    (
+        cmd /d /v:on /c "for /f "usebackq tokens=1,2 delims=:" %%a in ("!ranges_file!") do @echo advfirewall firewall set rule name="%%a_block" dir=out new enable=!act!"
+    ) 2>nul | netsh >nul 2>&1
+
+    for /f "usebackq tokens=1,2 delims=:" %%a in ("!ranges_file!") do (
         echo [90m!msg!: %%a [%%b][0m
-        echo advfirewall firewall set rule name="%%a_block" dir=out new enable=!act! >> "!tmp_cmds!"
     )
-    
-    :: Один вызов netsh для обработки всех команд сразу
-    netsh -f "!tmp_cmds!" >nul 2>&1
-    if exist "!tmp_cmds!" del "!tmp_cmds!"
     
     echo [90mГотово[0m
 ) else (
-    echo [90mНет файла с диапазонами[0m
+    echo [90m[Ошибка] Нет файла с диапазонами[0m
 )
 exit /b
 
@@ -555,8 +556,12 @@ powershell -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command ^
     "Write-Host 'Сканирование и сохранение состояния правил...';" ^
     "$filter = \"DisplayName like '%%tanksblitz%%' or DisplayName like '%%wotblitz%%'\";" ^
     "$rules = Get-CimInstance -Namespace root/standardcimv2 -ClassName MSFT_NetFirewallRule -Filter $filter -ErrorAction SilentlyContinue;" ^
-    "$backup = @{}; foreach($r in $rules) { if($r.InstanceID) { $backup[$r.InstanceID] = $r.Enabled } };" ^
-    "if ($rules) { $rules | Set-NetFirewallRule -Enabled False -ErrorAction SilentlyContinue };" ^
+    "$backup = @();" ^
+    "if ($rules) {" ^
+        "foreach($r in $rules) { if($r.Enabled -eq 1) { $backup += $r.InstanceID } };" ^
+        "Write-Host 'Временное отключение правил...';" ^
+        "$rules | Disable-NetFirewallRule -ErrorAction SilentlyContinue;" ^
+    "};" ^
     "Write-Host 'Запуск опроса...';" ^
     "try {" ^
         "$domains = Get-Content '%domains_file%' | Where-Object { $_ -match '\.' };" ^
@@ -567,18 +572,18 @@ powershell -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command ^
                 "if ($p.Count -gt 0) {" ^
                     "$ms = [Math]::Round($p.Average);" ^
                     "$c = if ($ms -lt 25) { '[92m' } elseif ($ms -lt 100) { '[93m' } else { '[91m' };" ^
-                    "return ('[90m[ [93m{0} [90m] {1}{2}msm' -f $d.PadRight(25), $c, $ms)" ^
-                "} else { return ('[90m[ [93m{0} [90m] [90mНЕДОСТУПЕНm' -f $d.PadRight(25)) }" ^
+                    "return ('[90m[ [93m{0} [90m] {1}{2}ms[0m' -f $d.PadRight(25), $c, $ms)" ^
+                "} else { return ('[90m[ [93m{0} [90m] [90mНЕДОСТУПЕН[0m' -f $d.PadRight(25)) }" ^
             "}).AddArgument($d);" ^
             "@{ PS = $ps; Async = $ps.BeginInvoke() }" ^
         "};" ^
         "while ($instances.Async.IsCompleted -contains $false) { Start-Sleep -Milliseconds 50 };" ^
         "foreach ($i in $instances) { Write-Host ($i.PS.EndInvoke($i.Async)); $i.PS.Dispose() };" ^
     "} finally {" ^
-        "Write-Host 'Возврат блокировок...';" ^
-        "foreach($id in $backup.Keys) {" ^
-            "if ($backup[$id] -eq 1) { Set-NetFirewallRule -Name $id -Enabled True -ErrorAction SilentlyContinue }" ^
-        "};" ^
+        "if ($backup) {" ^
+            "Write-Host 'Возврат блокировок...';" ^
+            "Enable-NetFirewallRule -Name $backup -ErrorAction SilentlyContinue;" ^
+        "}" ^
     "}"
 
 echo.
