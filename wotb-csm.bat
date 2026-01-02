@@ -660,7 +660,7 @@ if "%~1"=="entire" (
     echo.
     echo [94m[ [36mчистим кэш внутри папок [94m][0m
     cd /d "cache"
-    call :cycle-delete "battle_results_extended_*;dossier_*;notif_queue_*;camo_*;*.bk" "files"
+    call :cycle-delete "dossier_*;notif_queue_*;camo_*;*.bk" "files"
 )
 exit /b
 
