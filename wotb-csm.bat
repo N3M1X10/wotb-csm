@@ -38,7 +38,6 @@ echo [96mc / clean - [93mПочистить кэш игры[0m
 echo [96mreset - [91mсбросить данные WOTB[0m
 echo [96mping - Измерить задержку до кластеров[0m
 echo [96md / diag - Провести диагностику сети[0m
-echo [96mnr / net-reset - Провести сброс сетевого стэка системы[0m
 echo [96ms / stat - Узнать состояние правил[0m
 echo [96mf / wf - Открыть монитор Windows Firewall[0m
 echo [96mh / help / git - Перейти на страницу GitHub[0m
@@ -76,9 +75,6 @@ if "%select%"=="ping" goto check-ping
 
 if "%select%"=="d"    cls & call :network-diagnostics & goto endfunc
 if "%select%"=="diag" cls & call :network-diagnostics & goto endfunc
-
-if "%select%"=="nr"        cls & call :net-reset & goto endfunc
-if "%select%"=="net-reset" cls & call :net-reset & goto endfunc
 
 if "%select%"=="s"    goto :rules-status
 if "%select%"=="stat" goto :rules-status
@@ -645,7 +641,7 @@ exit /b
 
 
 :wotb-cleaner
-echo.&echo [104;96m[ !title! ][0m
+echo.&echo [104;93m[ !title! ][0m
 set "wotb_path=%~2"
 if "%~1"=="entire" (
     rd /q /s "!wotb_path!"
@@ -655,12 +651,12 @@ if "%~1"=="entire" (
     echo.
     echo [94m[ [36mудаляем кэш, в корне папки [94m][0m
     cd /d "!wotb_path!
-    call :cycle-delete "*.bin;*.yaml;*.archive;startupOptions.*;optionsGlobal.*;*.txt;*.log;*.bk" "files"
-    call :cycle-delete "region_cache;battle_results;clan;" "folders"
+    call :cycle-delete "*.dat;*.bin;*.yaml;*.archive;startupOptions.*;optionsGlobal.*;*.txt;*.log;*.bk" "files"
+    rem call :cycle-delete "region_cache" "folders"
     echo.
     echo [94m[ [36mчистим кэш внутри папок [94m][0m
     cd /d "cache"
-    call :cycle-delete "dossier_*;notif_queue_*;camo_*;*.bk" "files"
+    rem call :cycle-delete "base_stuff_*" "files"
 )
 exit /b
 
@@ -1004,18 +1000,24 @@ powershell -NoProfile -ExecutionPolicy Bypass -Command ^
  "    Write-Host '[i] Команда для исправления: netsh int tcp set global autotuninglevel=normal' -ForegroundColor Gray" ^
  "}"
 
-:: Проверка оптимизации задержки TCP (NoDelay)
+:: Проверка оптимизации задержки TCP (NoDelay) для активного интерфейса
 echo.
 powershell -NoProfile -ExecutionPolicy Bypass -Command ^
- "$regPath = 'HKLM:\SYSTEM\CurrentControlSet\Services\Tcpip\Parameters\Interfaces\';" ^
- "$optimized = $false;" ^
- "Get-ItemProperty $regPath* -ErrorAction SilentlyContinue | ForEach-Object {" ^
- "    if ($_.TcpNoDelay -eq 1 -and $_.TcpAckFrequency -eq 1) { $optimized = $true }" ^
- "};" ^
- "if ($optimized) {" ^
- "    Write-Host '[ok] TCP NoDelay: Optimized' -ForegroundColor Gray" ^
+ "$activeId = (Get-NetRoute -DestinationPrefix '0.0.0.0/0' | Sort-Object RouteMetric | Select-Object -First 1).InterfaceIndex;" ^
+ "$guid = (Get-NetAdapter -InterfaceIndex $activeId).InterfaceGuid;" ^
+ "$regPath = 'HKLM:\SYSTEM\CurrentControlSet\Services\Tcpip\Parameters\Interfaces\' + $guid;" ^
+ "if (Test-Path $regPath) {" ^
+ "    $taf = (Get-ItemProperty $regPath -Name TcpAckFrequency -ErrorAction SilentlyContinue).TcpAckFrequency;" ^
+ "    $tnd = (Get-ItemProperty $regPath -Name TcpNoDelay -ErrorAction SilentlyContinue).TcpNoDelay;" ^
+ "    $tdat = (Get-ItemProperty $regPath -Name TcpDelAckTicks -ErrorAction SilentlyContinue).TcpDelAckTicks;" ^
+ "    if ($taf -eq 1 -and $tnd -eq 1 -and $tdat -eq 0) {" ^
+ "        Write-Host '[ok] TCP NoDelay: Optimized (Active Adapter)' -ForegroundColor Gray" ^
+ "    } else {" ^
+ "        Write-Host '[^!] Алгоритм Нагла активен на основном интерфейсе.' -ForegroundColor Yellow;" ^
+ "        Write-Host '     Рекомендуется: TcpNoDelay=1, TcpAckFrequency=1, TcpDelAckTicks=0' -ForegroundColor Gray" ^
+ "    }" ^
  "} else {" ^
- "    Write-Host '[^!] Алгоритм Нагла активен. Для игр рекомендуется отключить (TcpNoDelay/TcpAckFrequency=1)' -ForegroundColor Yellow" ^
+ "    Write-Host '[^!] Не удалось определить активный сетевой интерфейс в реестре.' -ForegroundColor Red" ^
  "}"
 
 :: Проверка Chimney Offload
@@ -1105,46 +1107,6 @@ powershell -NoProfile -ExecutionPolicy Bypass -Command ^
 echo.
 echo [92mДиагностика завершена[0m
 echo [0m[i] Каждый пункт без "ok" означает - предупреждение. Это означает, что вы можете воспользоваться поиском в интернете, для детального решения каждой сетевой проблемы со стороны вашей системы[0m
-exit /b
-
-
-
-:net-reset
-cls
-echo [93m[ Сетевой сброс ][0m
-echo.
-echo [93m[i] ВНИМАНИЕ Данная операция призвана устранить проблемы с сетью, но также может сбить настройки твикеров, которые могли быть применены для оптимизации. Прошу обратить внимание на это перед выполнением операции.[0m
-echo.
-
-choice /C "YN" /m "[93m[?] Вы уверены что хотите [91mСБРОСИТЬ [93mсетевые параметры в системе?[0m"
-if "!errorlevel!"=="1" (echo [90mподтверждено[0m)
-if "!errorlevel!"=="2" (goto ask)
-
-echo.
-echo [^>] Возврат к заводским настройкам Windows ...
-
-:: Очистка DNS
-ipconfig /flushdns >nul
-:: Сброс IP/TCP
-netsh int ip reset >nul
-netsh int tcp reset >nul
-:: Сброс Winsock
-netsh winsock reset >nul
-:: Cброс шаблонов TCP
-netsh int tcp set supplemental template=internet setup
-netsh int tcp set global autotuninglevel=normal
-:: Удаляем пользовательские реестровые ключи
-reg delete "HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Multimedia\SystemProfile" /v NetworkThrottlingIndex /f >nul
-reg delete "HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Multimedia\SystemProfile" /v SystemResponsiveness /f >nul
-reg delete "HKLM\SYSTEM\CurrentControlSet\Services\Tcpip\Parameters" /v MaxUserPort /f >nul
-reg delete "HKLM\SYSTEM\CurrentControlSet\Services\Tcpip\Parameters" /v TcpMaxDataRetransmissions /f >nul
-for /F "tokens=1,2*" %%i in ('reg query HKLM\SYSTEM\CurrentControlSet\Services\Tcpip\Parameters\Interfaces /s ^| findstr /I "Interface"') do (
-    reg delete "%%j" /v TcpAckFrequency /f 2>nul
-    reg delete "%%j" /v TCPNoDelay /f 2>nul
-    reg delete "%%j" /v TcpDelAckTicks /f 2>nul
-)
-
-echo Сброс завершён. Перезагрузите компьютер, чтобы изменения вступили в силу.
 exit /b
 
 
