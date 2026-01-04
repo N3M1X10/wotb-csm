@@ -19,6 +19,7 @@ endlocal
 setlocal EnableDelayedExpansion
 
 cls
+title %~nx0
 echo [101;93mМеню настройки кластеров WOTB[0m
 echo.
 echo [93mМеню управления статусом правил:[0m
@@ -686,8 +687,7 @@ if "!type!"=="files" (
     exit /b
 )
 ::cleaner
-set array="!array:;=" "!"
-for %%t in (!array!) do (
+for %%t in (!array!="!array:;=" "!") do (
     set item=%%~t
     rem echo our tar: "[96m!item![0m"
     if exist "!item!" (
@@ -712,18 +712,51 @@ echo [92m[ [93m- - - Запуск WOTB - - - [92m][0m
 echo.
 echo [90mПробую запустить либо найти игры (tanksblitz/wotblitz)...[0m
 powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command ^
+    "$eof_delay = {Start-Sleep -s 1};" ^
     "$apps = @(" ^
-    "    @{ name='TanksBlitz'; exe='TanksBlitz.exe'; search='*Tanks Blitz*'; lName='Lesta Game Center'; lExe='lgc.exe'; lProc='lgc'; lTitle='Lesta Game Center' }," ^
-    "    @{ name='WoTBlitz'; exe='wotblitz.exe'; search='*World of Tanks Blitz*'; lName='Wargaming.net Game Center'; lExe='wgc.exe'; lProc='wgc'; lTitle='Wargaming.net Game Center' }" ^
+    "    @{ name='TanksBlitz'; exe='TanksBlitz.exe'; lName='Lesta Game Center'; lExe='lgc.exe'; lProc='lgc' }," ^
+    "    @{ name='WoTBlitz'; exe='wotblitz.exe'; lName='Wargaming.net Game Center'; lExe='wgc.exe'; lProc='wgc' }" ^
     ");" ^
-    "function Get-LauncherPath($lName, $lExe) {" ^
-    "    $regs = @('HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\*', 'HKLM:\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\*', 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\*', 'HKLM:\SOFTWARE\Lesta*', 'HKCU:\Software\Lesta*', 'HKLM:\SOFTWARE\Wargaming.net*');" ^
-    "    $item = Get-ItemProperty $regs -ErrorAction SilentlyContinue | Where-Object { ($_.DisplayName -like \"*$lName*\" -or $_.PSChildName -like \"*$lName*\") } | Select-Object -First 1;" ^
-    "    if ($item.InstallLocation) { $f = Join-Path $item.InstallLocation $lExe; if (Test-Path $f) { return $f } }" ^
-    "    if ($item.DisplayIcon) { $f = Join-Path (Split-Path $item.DisplayIcon -Parent) $lExe; if (Test-Path $f) { return $f } }" ^
-    "    $dirs = [System.IO.DriveInfo]::GetDrives() | Where-Object { $_.DriveType -eq 'Fixed' } | Select-Object -ExpandProperty RootDirectory;" ^
-    "    $subs = @('Games\Lesta\GameCenter', 'Lesta\GameCenter', 'Wargaming.net\WGC', 'Program Files (x86)\Lesta\GameCenter');" ^
-    "    foreach ($d in $dirs) { foreach ($s in $subs) { $f = Join-Path (Join-Path $d $s) $lExe; if (Test-Path $f) { return $f } } }" ^
+    "function Get-RealCasePath($path) {" ^
+    "    try {" ^
+    "        $file = New-Object System.IO.FileInfo($path);" ^
+    "        if ($file.Exists) {" ^
+    "            $handle = [Microsoft.Win32.SafeHandles.SafeFileHandle]$file.OpenRead().SafeFileHandle;" ^
+    "            $sb = New-Object System.Text.StringBuilder(1024);" ^
+    "            $sig = '[DllImport(\"kernel32.dll\", SetLastError=true, CharSet=CharSet.Auto)] public static extern uint GetFinalPathNameByHandle(IntPtr hFile, [Out] System.Text.StringBuilder lpszFilePath, uint cchFilePath, uint dwFlags);';" ^
+    "            $type = Add-Type -MemberDefinition $sig -Name 'Win32Path' -Namespace 'Win32' -PassThru;" ^
+    "            $res = $type::GetFinalPathNameByHandle($handle.DangerousGetHandle(), $sb, 1024, 0);" ^
+    "            $handle.Close();" ^
+    "            return $sb.ToString().Replace('\\?\', '')" ^
+    "        }" ^
+    "    } catch {}" ^
+    "    return $path" ^
+    "}" ^
+    "function Get-PathFast($targetExe) {" ^
+    "    $regPaths = @('HKCU:\Software\Classes\Local Settings\Software\Microsoft\Windows\Shell\MuiCache', 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\FeatureUsage\AppSwitched', 'HKCU:\Software\Microsoft\Windows NT\CurrentVersion\AppCompatFlags\Compatibility Assistant\Store', 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\*', 'HKLM:\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\*', 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\*');" ^
+    "    $pattern = '[A-Z]:\\.*' + [regex]::Escape($targetExe);" ^
+    "    foreach ($root in $regPaths) {" ^
+    "        $p = Get-ItemProperty $root -ErrorAction SilentlyContinue; if (-not $p) { continue }" ^
+    "        foreach ($prop in $p.PSObject.Properties) {" ^
+    "            $val = if ($prop.Value -is [string]) { $prop.Value } else { '' };" ^
+    "            if ($prop.Name -match $pattern -or $val -match $pattern) {" ^
+    "                $f = $matches[0]; if (Test-Path $f) { return Get-RealCasePath $f }" ^
+    "            }" ^
+    "        }" ^
+    "    }" ^
+    "    return $null" ^
+    "}" ^
+    "function Get-GamePath($exe) {" ^
+    "    $fast = Get-PathFast $exe; if ($fast) { return $fast }" ^
+    "    $drives = [System.IO.DriveInfo]::GetDrives() | Where-Object { $_.DriveType -eq 'Fixed' } | Select-Object -ExpandProperty RootDirectory;" ^
+    "    foreach ($d in $drives) {" ^
+    "        $rootFile = Get-ChildItem -Path $d -Filter $exe -ErrorAction SilentlyContinue; if ($rootFile) { return $rootFile.FullName }" ^
+    "        $subDirs = Get-ChildItem -Path $d -Directory -ErrorAction SilentlyContinue | Where-Object { $_.Attributes -notlike '*ReparsePoint*' };" ^
+    "        foreach ($sd in $subDirs) {" ^
+    "            $f = Get-ChildItem -Path $sd.FullName -Filter $exe -Recurse -ErrorAction SilentlyContinue | Select-Object -ExpandProperty FullName -First 1;" ^
+    "            if ($f) { return $f }" ^
+    "        }" ^
+    "    }" ^
     "    return $null" ^
     "}" ^
     "function Wait-Launcher($proc) {" ^
@@ -732,67 +765,44 @@ powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command ^
     "    $timer = [System.Diagnostics.Stopwatch]::StartNew();" ^
     "    while ($timer.Elapsed.TotalSeconds -lt 40) {" ^
     "        $p = Get-Process $proc -ErrorAction SilentlyContinue | Where-Object { $_.MainWindowHandle -ne 0 };" ^
-    "        if ($p) {" ^
-    "            Start-Sleep -m 1000;" ^
-    "            $type::PostMessage($p.MainWindowHandle, 0x0112, 0xF060, [IntPtr]::Zero);" ^
-    "            return $true" ^
-    "        }" ^
+    "        if ($p) { Start-Sleep -m 1000; $type::PostMessage($p.MainWindowHandle, 0x0112, 0xF060, [IntPtr]::Zero); return $true }" ^
     "        Start-Sleep -m 500" ^
     "    }; return $false" ^
     "}" ^
-    "function Show-ConsoleMenu([string]$Title, $Items) {" ^
-    "    Write-Host '';" ^
-    "    Write-Host $Title -ForegroundColor Yellow;" ^
-    "    Write-Host '';" ^
-    "    $startPos = $Host.UI.RawUI.CursorPosition;" ^
-    "    $idx = 0;" ^
+    "function Show-ConsoleMenu($Title, $Items) {" ^
+    "    Write-Host ''; Write-Host $Title -ForegroundColor Yellow; Write-Host '';" ^
+    "    $startPos = $Host.UI.RawUI.CursorPosition; $idx = 0;" ^
     "    while ($true) {" ^
     "        $Host.UI.RawUI.CursorPosition = $startPos;" ^
     "        for ($i = 0; $i -lt $Items.Count; $i++) {" ^
-    "            $currentItem = $Items[$i]; $text = if($currentItem.Path){ $currentItem.Game + ' (' + $currentItem.Path + ')' } else { $currentItem.Game };" ^
-    "            if ($i -eq $idx) {" ^
-    "                Write-Host '»' -NoNewline -ForegroundColor Yellow;" ^
-    "                Write-Host '[96m'$text" ^
-    "            } else {" ^
-    "                Write-Host ' ' -NoNewline;" ^
-    "                Write-Host '[36m'$text" ^
-    "            }" ^
+    "            $curr = $Items[$i]; $text = if($curr.Path){ $curr.Game + ' (' + $curr.Path + ')' } else { $curr.Game };" ^
+    "            if ($i -eq $idx) { Write-Host '»' -NoNewline -ForegroundColor Yellow; Write-Host '[96m'$text } " ^
+    "            else { Write-Host ' ' -NoNewline; Write-Host '[36m'$text }" ^
     "        }" ^
     "        $key = $Host.UI.RawUI.ReadKey('NoEcho,IncludeKeyDown');" ^
     "        if ($key.VirtualKeyCode -eq 38 -and $idx -gt 0) { $idx-- }" ^
     "        elseif ($key.VirtualKeyCode -eq 40 -and $idx -lt $Items.Count - 1) { $idx++ }" ^
-    "        elseif ($key.VirtualKeyCode -eq 13) {" ^
-    "            Write-Host ''; return $Items[$idx]" ^
-    "        }" ^
+    "        elseif ($key.VirtualKeyCode -eq 13) { Write-Host ''; return $Items[$idx] }" ^
     "    }" ^
     "}" ^
     "$foundPaths = @();" ^
-    "$allDrives = [System.IO.DriveInfo]::GetDrives() | Where-Object { $_.DriveType -eq 'Fixed' } | Select-Object -ExpandProperty RootDirectory;" ^
     "foreach ($a in $apps) {" ^
-    "    foreach ($drive in $allDrives) {" ^
-    "        $foundFile = Get-ChildItem -Path $drive -Filter $a.exe -Recurse -ErrorAction SilentlyContinue | Select-Object -ExpandProperty FullName -First 1;" ^
-    "        if ($foundFile) {" ^
-    "            $foundPaths += [PSCustomObject]@{ Game=$a.name; Path=$foundFile; LName=$a.lName; LExe=$a.lExe; LProc=$a.lProc; LTitle=$a.lTitle };" ^
-    "            break;" ^
-    "        }" ^
-    "    }" ^
+    "    $gp = Get-GamePath $a.exe;" ^
+    "    if ($gp) { $foundPaths += [PSCustomObject]@{ Game=$a.name; Path=$gp; LName=$a.lName; LExe=$a.lExe; LProc=$a.lProc } }" ^
     "}" ^
-    "if ($foundPaths.Count -eq 0) { Write-Host 'Игры не найдены.' -ForegroundColor Red; exit }" ^
+    "if ($foundPaths.Count -eq 0) { Write-Host ' [i] Игры не найдены.' -ForegroundColor Red; exit }" ^
     "$foundPaths += [PSCustomObject]@{ Game='[91m[ ОТМЕНА ]'; Path=$null };" ^
-    "$sel = Show-ConsoleMenu -Title 'Выберите вариант стрелочками:' -Items $foundPaths;" ^
+    "$sel = Show-ConsoleMenu -Title '[?] Выберите вариант стрелочками:' -Items $foundPaths;" ^
     "if ($sel -and $sel.Path) {" ^
-    "    if (Get-Process $sel.Game -ErrorAction SilentlyContinue) { Write-Host ' [i] Игра уже запущена' -ForegroundColor Yellow; Start-Sleep -s 2; exit }" ^
-    "    $lp = Get-LauncherPath $sel.LName $sel.LExe;" ^
+    "    if (Get-Process $sel.Game -ErrorAction SilentlyContinue) { Write-Host ' [i] Игра уже запущена' -ForegroundColor Yellow; &$eof_delay; exit }" ^
+    "    $lp = Get-PathFast $sel.LExe;" ^
     "    if (-not (Get-Process $sel.LProc -ErrorAction SilentlyContinue)) {" ^
     "        if ($lp) {" ^
-    "            Write-Host ('Запуск лаунчера ' + $sel.LName + '...') -ForegroundColor Cyan;" ^
-    "            Start-Process $lp;" ^
-    "            if (Wait-Launcher $sel.LProc) { Write-Host 'Запуск игры...' -ForegroundColor Green; Start-Process $sel.Path; }" ^
-    "        } else { Write-Host 'Лаунчер не найден.' -ForegroundColor Red }" ^
-    "    } else {" ^
-    "        Write-Host 'Лаунчер активен. Запуск...' -ForegroundColor Green; Start-Process $sel.Path" ^
-    "    }" ^
-    " Start-Sleep -s 2;" ^
+    "            Write-Host ('[>] Запуск лаунчера ' + $sel.LName + '...') -ForegroundColor Cyan; Start-Process $lp;" ^
+    "            if (Wait-Launcher $sel.LProc) { Write-Host '[>] Запуск игры...' -ForegroundColor Green; Start-Process $sel.Path }" ^
+    "        } else { Write-Host ' [i] Лаунчер не найден.' -ForegroundColor Red }" ^
+    "    } else { Write-Host '[>] Лаунчер активен. Запуск...' -ForegroundColor Green; Start-Process $sel.Path }" ^
+    "    &$eof_delay;" ^
     "} else { exit }"
 rem goto endfunc
 goto ask
@@ -808,16 +818,16 @@ choice /C "10" /m "[93m[?] Подтвердите [91mЗАВЕРШЕНИЕ [9
 if "!errorlevel!"=="1" (echo [90mподтверждено[0m)
 if "!errorlevel!"=="2" (goto ask)
 :: Список процессов для завершения
-set "procs=TanksBlitz.exe wotblitz.exe lgc.exe wgc.exe"
-
+set "array=TanksBlitz.exe;wotblitz.exe;lgc.exe;wgc.exe"
 echo.
 echo [90mЗавершаем процессы...[0m
-for %%p in (%procs%) do (
+for %%p in (!array!="!array:;=" "!") do (
+    set item=%%~p
     :: Проверяем, запущен ли процесс, чтобы не спамить ошибками
-    tasklist /fi "ImageName eq %%p" 2>NUL | find /i "%%p" >NUL
+    tasklist /fi "ImageName eq !item!" 2>NUL | find /i "!item!" >NUL
     if not errorlevel 1 (
-        taskkill /f /t /im %%p >nul 2>&1
-        echo [90m * процесс : "%%p" - убит[0m
+        taskkill /f /t /im !item! >nul 2>&1
+        echo [90m * процесс : "!item!" - убит[0m
     )
 )
 goto endfunc
@@ -833,269 +843,119 @@ echo [93m[i] [36mЭтот процесс может занять некото�
 :: VPN
 echo.
 sc query | findstr /I "VPN">nul
-if !errorlevel!==0 (
-    echo [91m[^^!] Обнаружены службы VPN. [93mМогут влиять на пинг, если они в активном состоянии[0m
+if "!errorlevel!"=="0" (
+    echo [91m[^^!] Обнаружены службы VPN. [93mМогут влиять на пинг, если они в активном состоянии
     sc query | findstr /I "VPN"
 ) else (
-    echo [ok] VPN
+    echo [92m[ok][90m VPN
 )
 
 :: WARP
-echo.
+echo [0m
 sc query | findstr /I "WARP">nul
-if !errorlevel!==0 (
+if "!errorlevel!"=="0" (
     echo [91m[^^!] Обнаружен WARP. [93mОн может повлиять на пинг, если он в активном состоянии[0m
 ) else (
-    echo [ok] WARP
+    echo [92m[ok][90m WARP
 )
 
 :: Проверка наличия драйвера cFosSpeed / ASUS GameFirst
 echo.
 sc query cFosSpeed >nul
-if !errorlevel!==0 (
+if "!errorlevel!"=="0" (
     echo [91m[^^!] Обнаружен драйвер cFosSpeed (GameFirst^). [93mОн может конфликтовать с брандмауэром и вызывать статтеры[0m
 ) else (
-    echo [ok] traffic optimizer (cFosSpeed^)
+    echo [92m[ok][90m traffic optimizer (cFosSpeed^)
 )
 
 :: System Proxy
 echo.
 reg query "HKCU\Software\Microsoft\Windows\CurrentVersion\Internet Settings" /v ProxyEnable | findstr "0x1" >nul
-if !errorlevel!==0 (
+if "!errorlevel!"=="0" (
     echo [91m[^^!] Включен системный прокси-сервер. [93mЭто может исказить пинг[0m
 ) else (
-    echo [ok] system proxy
+    echo [92m[ok][90m system proxy
 )
 
 :: Killer Network
 echo.
 tasklist /FI "IMAGENAME eq KillerNetwork.exe" 2>nul | findstr /I "KillerNetwork" >nul
-if !errorlevel!==0 (
+if "!errorlevel!"=="0" (
     echo [91m[^^!] Обнаружено ПО Killer Network. Это может влиять на приоритет трафика[0m
 ) else (
-    echo [ok] killer network
+    echo [92m[ok][90m killer network
 )
 
-:: Ethernet
-echo.
-powershell -NoProfile -Command "if ((Get-NetAdapter | Where-Object {$Status -eq 'Up'}).MediaConnectionState -contains 'Wireless') { exit 1 } else { exit 0 }"
-if !errorlevel!==1 (
-    echo [93m[^^!] Вы используете Wi-Fi. Для минимальной задержки рекомендуется Ethernet[0m
-) else (
-    echo [ok] ethernet
-)
-
-:: Проверка MTU активного интерфейса
-echo.
-powershell -NoProfile -Command ^
- "$iface = Get-NetIPInterface -AddressFamily IPv4 | Where-Object { $_.ConnectionState -eq 'Connected' -and (Get-NetIPAddress -InterfaceIndex $_.InterfaceIndex).IPv4DefaultGateway } | Select-Object -First 1;" ^
- "if ($iface.NlMtu -lt 1500) {" ^
-     "Write-Host ('[91m[^!] Low MTU: {0} (норма 1500). Возможна фрагментация пакетов.[0m' -f $iface.NlMtu);" ^
- "} else {" ^
-     "Write-Host ('[0m[ok] MTU is normal: {0}[0m' -f $iface.NlMtu);" ^
- "}"
-
-:: Проверка задержки DNS-сервера
-echo.
-powershell -NoProfile -Command ^
+echo.&echo [90mПерехожу к powershell проверкам...
+powershell -NoProfile -ExecutionPolicy Bypass -Command ^
+ "$ErrorActionPreference = 'SilentlyContinue';" ^
+ "function W-Ok($m) { Write-Host ('[92m[ok][90m ' + $m) };" ^
+ "function W-Wn($m) { Write-Host ('[93m[^!] ' + $m) };" ^
+ "function W-Er($m) { Write-Host ('[91m[^!^!^!][93m ' + $m) };" ^
+ "" ^
+ "Write-Host '[*] Waiting for adapter and driver to stabilize' -NoNewline;" ^
+ "$ready = $false; for ($i=0; $i -lt 30; $i++) {" ^
+ "  $if = Get-NetIPInterface -AddressFamily IPv4 | Where-Object { $_.ConnectionState -eq 'Connected' -and (Get-NetRoute -InterfaceIndex $_.InterfaceIndex -DestinationPrefix '0.0.0.0/0') } | Select-Object -First 1;" ^
+ "  if ($if) { $ready = $true; break };" ^
+ "  Write-Host '.' -NoNewline; Start-Sleep -Seconds 1;" ^
+ "}" ^
+ "Write-Host '';" ^
+ "if (-not $ready) { W-Er 'Active adapter with Internet access not found.'; exit };" ^
+ "$ad = Get-NetAdapter -InterfaceIndex $if.InterfaceIndex;" ^
+ "Write-Host '';" ^
+ "" ^
+ "if ($ad.PhysicalMediaType -match '802.11|Wireless') { W-Wn 'You are using Wi-Fi. Ethernet is recommended for gaming.' } else { W-Ok 'Ethernet connection detected.' };" ^
+ "Write-Host '';" ^
+ "if ($if.NlMtu -lt 1500) { W-Wn ('Low MTU: ' + $if.NlMtu + ' (norm 1500). Possible fragmentation.') } else { W-Ok ('MTU: ' + $if.NlMtu) };" ^
+ "Write-Host '';" ^
+ "" ^
  "Write-Host 'Checking DNS latency...';" ^
- "$servers = Get-DnsClientServerAddress | Where-Object { $_.ServerAddresses -ne $null } | Select-Object -ExpandProperty ServerAddresses -Unique;" ^
- "foreach ($dns in $servers) {" ^
-    "Write-Host ('[*] {0,-25}' -f $dns) -NoNewline;" ^
-    "try {" ^
-        "$addr = [System.Net.IPAddress]::Parse($dns);" ^
-        "$socket = New-Object System.Net.Sockets.TcpClient($addr.AddressFamily);" ^
-        "$sw = [Diagnostics.Stopwatch]::StartNew();" ^
-        "$connect = $socket.BeginConnect($addr, 53, $null, $null);" ^
-        "if ($connect.AsyncWaitHandle.WaitOne(200)) {" ^
-            "$socket.EndConnect($connect);" ^
-            "Clear-DnsClientCache;" ^
-            "$res = Resolve-DnsName google.com -Server $dns -DnsOnly -ErrorAction SilentlyContinue;" ^
-            "$ms = $sw.Elapsed.TotalMilliseconds;" ^
-            "if ($res) {" ^
-                "if ($ms -gt 150) { Write-Host ('[91mSLOW ({0:N0} ms)[0m' -f $ms) } else { Write-Host ('[92mOK ({0:N0} ms)[0m' -f $ms) }" ^
-            "} else { Write-Host '[91mDNS FAIL[0m' }" ^
-        "} else { Write-Host '[90mDEAD[0m' }" ^
-        "$sw.Stop(); $socket.Close();" ^
-    "} catch { Write-Host '[91mINVALID[0m' }" ^
- "} 2>$null"
-
-
-:: Проверка на подмену DNS (Hijacking)
-echo.
-powershell -NoProfile -Command ^
- "$testDomain = 'check-dns-hijack-' + (Get-Random) + '.com';" ^
- "try { $res = Resolve-DnsName $testDomain -ErrorAction SilentlyContinue -DnsOnly; " ^
- "if ($res) { Write-Host '[91m[^!] Обнаружена подмена DNS (DNS Hijacking)^! Ваш провайдер перехватывает запросы. Это может вызвать неполадки со стороны сетевых утилит[0m' }" ^
- "else { Write-Host '[0m[ok] DNS Hijacking check: Clean[0m' } } catch { Write-Host '[0m[ok] DNS Hijacking check: Clean[0m' }"
-
-:: Проверка наличия IPv6
-echo.
-powershell -NoProfile -Command ^
- "$ipv6 = Get-NetAdapterBinding | Where-Object {$_.ComponentID -eq 'ms_tcpip6' -and $_.Enabled -eq $true};" ^
- "if ($ipv6) { Write-Host '[0m[*] IPv6 включен. Если есть проблемы с входом в игру, попробуйте его отключить.[0m' }"
-
-:: Проверка количества основных шлюзов
-echo.
-powershell -NoProfile -Command ^
- "$gateways = (Get-NetRoute -DestinationPrefix '0.0.0.0/0' | Where-Object { $_.NextHop -ne '0.0.0.0' -and $_.RouteMetric -ne 256 }).Count;" ^
- "if ($gateways -gt 1) { Write-Host ('[91m[^!] Найдено несколько шлюзов ({0}). Это вызывает конфликты маршрутов^![0m' -f $gateways) }" ^
- "else { Write-Host '[0m[ok] Gateway count: 1[0m' }"
-
-:: Проверка RSS (Глобальный + Аппаратный)
-echo.
-powershell -NoProfile -ExecutionPolicy Bypass -Command ^
- "$adapter = Get-NetAdapter -Physical | Where-Object { $_.Status -eq 'Up' } | Select-Object -First 1;" ^
- "if (-not $adapter) { Write-Host 'Активный адаптер не найден' -ForegroundColor Red; exit };" ^
- "$isNetshEnabled = [bool](netsh int tcp show global | Select-String 'rss=enabled|enabled|включен');" ^
- "$hwRSS = Get-NetAdapterRss -Name $adapter.Name -ErrorAction SilentlyContinue;" ^
- "$isHwEnabled = $false;" ^
- "if ($hwRSS -and $hwRSS.Enabled) { $isHwEnabled = $true } else {" ^
- "    $prop = Get-NetAdapterAdvancedProperty -Name $adapter.Name | Where-Object { $_.RegistryKeyword -eq '*NumRssQueues' };" ^
- "    if ($prop) { [int]$val = [int]($prop.RegistryValue[0]); if ($val -gt 1) { $isHwEnabled = $true } }" ^
+ "$srvs = Get-DnsClientServerAddress -InterfaceIndex $if.InterfaceIndex -AddressFamily IPv4 | Select-Object -ExpandProperty ServerAddresses -Unique;" ^
+ "foreach ($dns in $srvs) {" ^
+ "  Write-Host ('[*] ' + $dns.PadRight(25)) -NoNewline;" ^
+ "  $sw = [Diagnostics.Stopwatch]::StartNew(); $success = $false;" ^
+ "  for($j=0; $j -lt 2; $j++) { if (Resolve-DnsName google.com -Server $dns -QuickTimeout -ErrorAction SilentlyContinue) { $success = $true; break } }" ^
+ "  $ms = [int]$sw.Elapsed.TotalMilliseconds;" ^
+ "  if ($success) {" ^
+ "    if ($ms -gt 100) { Write-Host ('[91mSLOW (' + $ms + ' ms)') } else { Write-Host ('[92mOK (' + $ms + ' ms)') }" ^
+ "  } else { Write-Host '[91mDNS FAIL' }" ^
+ "}" ^
+ "Write-Host '';" ^
+ "" ^
+ "Write-Host 'Checking RSS (Receive Side Scaling)...';" ^
+ "$sysRss = (Get-NetOffloadGlobalSetting).ReceiveSideScaling;" ^
+ "$nicRss = Get-NetAdapterRss -Name $ad.Name -ErrorAction SilentlyContinue | Where-Object { $_.Enabled };" ^
+ "if ($sysRss -eq 'Enabled' -and $nicRss) { W-Ok 'RSS: Fully Enabled (Global + NIC)' } else { W-Wn 'RSS: Limited or mismatched configuration' };" ^
+ "Write-Host '';" ^
+ "" ^
+ "Write-Host 'Checking RSC (Receive Segment Coalescing)...';" ^
+ "$sysRsc = (Get-NetOffloadGlobalSetting).ReceiveSegmentCoalescing;" ^
+ "$nicRsc = Get-NetAdapterRsc -Name $ad.Name -ErrorAction SilentlyContinue | Where-Object { $_.IPv4Enabled };" ^
+ "if ($sysRsc -eq 'Disabled' -and -not $nicRsc) { W-Ok 'RSC: Fully Disabled (Optimal for Games)' } " ^
+ "else { " ^
+ "  $nStat = if ($nicRsc) { 'Enabled' } else { 'Disabled' }; " ^
+ "  W-Wn ('RSC: Active (Global:' + $sysRsc + ' / NIC:' + $nStat + ')') " ^
  "};" ^
- "if ($isNetshEnabled -and $isHwEnabled) {" ^
- "    Write-Host '[ok] Network RSS: Fully Enabled' -ForegroundColor Gray" ^
- "} else {" ^
- "    $netshStatus = if ($isNetshEnabled) { 'Enabled' } else { 'Disabled' };" ^
- "    $hwStatus = if ($isHwEnabled) { 'Enabled (via Queues)' } else { 'Disabled' };" ^
- "    Write-Host ('[i] RSS ограничен. Система (Netsh): {0}, Адаптер (Hardware): {1}' -f $netshStatus, $hwStatus) -ForegroundColor Yellow;" ^
- "    if (-not $isHwEnabled) { Write-Host 'Рекомендуется включить RSS или увеличить количество очередей.' -ForegroundColor Gray }" ^
- "}"
-
-:: Проверка модерации прерываний
-echo.
-powershell -NoProfile -ExecutionPolicy Bypass -Command ^
- "$adapter = Get-NetAdapter -Physical | Where-Object { $_.Status -eq 'Up' } | Select-Object -First 1;" ^
- "if (-not $adapter) { Write-Host 'Активный сетевой адаптер не найден.' -ForegroundColor Red; exit };" ^
- "$prop = Get-NetAdapterAdvancedProperty -Name $adapter.Name | Where-Object { $_.DisplayName -match 'Interrupt Moderation|Модерация прерываний' -or $_.RegistryKeyword -match '\*InterruptModeration' };" ^
- "if ($null -eq $prop) {" ^
- "    Write-Host '[?] Параметр не поддерживается драйвером.' -ForegroundColor Yellow" ^
- "} elseif ($prop.DisplayValue -match 'Disabled|Выкл' -or $prop.RegistryValue -eq '0') {" ^
- "    Write-Host '[ok] Interrupt Moderation: Disabled' -ForegroundColor Gray" ^
- "} else {" ^
- "    Write-Host ('[^!] Модерация прерываний активна ({0}). Для игр лучше: Disabled' -f $prop.DisplayValue) -ForegroundColor Yellow" ^
- "}"
-
-:: Проверка таблицы маршрутизации
-echo.
-powershell -NoProfile -ExecutionPolicy Bypass -Command ^
- "$routes = (Get-NetRoute | Where-Object { $_.DestinationPrefix -ne '::/0' -and $_.DestinationPrefix -ne '0.0.0.0/0' -and $_.DestinationPrefix -notmatch 'loopback' }).Count;" ^
- "Write-Host ('[i] Записей маршрутизации: {0}' -f $routes) -ForegroundColor Gray;"
-
-:: Проверка автоподстройки TCP
-echo.
-powershell -NoProfile -ExecutionPolicy Bypass -Command ^
- "$tcp = (Get-NetTCPSetting | Where-Object { $_.AppliedSetting -eq 'Internet' -or $_.SettingName -eq 'InternetCustom' -or $_.SettingName -eq 'Internet' } | Select-Object -First 1).AutoTuningLevelLocal;" ^
- "if ($tcp -eq 'Normal') {" ^
- "    Write-Host '[ok] TCP Auto-Tuning: Normal' -ForegroundColor Gray" ^
- "} else {" ^
- "    Write-Host ('[^!] Автоподстройка TCP: {0}. Рекомендуется Normal.' -f $tcp) -ForegroundColor Yellow;" ^
- "    Write-Host '[i] Команда исправления (cmd): netsh int tcp set global autotuninglevel=normal' -ForegroundColor Gray;" ^
- "    Write-Host '[i] Команда исправления (pwsh): Set-NetTCPSetting -SettingName Internet -AutoTuningLevelLocal Normal' -ForegroundColor Gray;" ^
- "}"
-
-:: Проверка оптимизации задержки TCP (NoDelay) для активного интерфейса
-echo.
-powershell -NoProfile -ExecutionPolicy Bypass -Command ^
- "$activeId = (Get-NetRoute -DestinationPrefix '0.0.0.0/0' | Sort-Object RouteMetric | Select-Object -First 1).InterfaceIndex;" ^
- "$guid = (Get-NetAdapter -InterfaceIndex $activeId).InterfaceGuid;" ^
- "$regPath = 'HKLM:\SYSTEM\CurrentControlSet\Services\Tcpip\Parameters\Interfaces\' + $guid;" ^
- "if (Test-Path $regPath) {" ^
- "    $taf = (Get-ItemProperty $regPath -Name TcpAckFrequency -ErrorAction SilentlyContinue).TcpAckFrequency;" ^
- "    $tnd = (Get-ItemProperty $regPath -Name TcpNoDelay -ErrorAction SilentlyContinue).TcpNoDelay;" ^
- "    $tdat = (Get-ItemProperty $regPath -Name TcpDelAckTicks -ErrorAction SilentlyContinue).TcpDelAckTicks;" ^
- "    if ($taf -eq 1 -and $tnd -eq 1 -and $tdat -eq 0) {" ^
- "        Write-Host '[ok] TCP NoDelay: Optimized (Active Adapter)' -ForegroundColor Gray" ^
- "    } else {" ^
- "        Write-Host '[^!] Алгоритм Нагла активен на основном интерфейсе.' -ForegroundColor Yellow;" ^
- "        Write-Host '     Рекомендуется: TcpNoDelay=1, TcpAckFrequency=1, TcpDelAckTicks=0' -ForegroundColor Gray" ^
- "    }" ^
- "} else {" ^
- "    Write-Host '[^!] Не удалось определить активный сетевой интерфейс в реестре.' -ForegroundColor Red" ^
- "}"
-
-:: Проверка Chimney Offload
-echo.
-powershell -NoProfile -ExecutionPolicy Bypass -Command ^
- "$chimney = (netsh int tcp show global | Select-String 'chimney|разгрузка' | Select-String 'enabled|включен');" ^
- "if ($chimney) {" ^
- "    Write-Host '[^!] Включен Chimney Offload. Это часто вызывает десинхрон^!' -ForegroundColor Red;" ^
- "    Write-Host '[i] Рекомендуется: netsh int tcp set global chimney=disabled' -ForegroundColor Gray" ^
- "} else {" ^
- "    Write-Host '[ok] TCP Chimney Offload: Disabled' -ForegroundColor Gray" ^
- "}"
-
-
-:: долгие проверки
-
-:: Проверка фоновых закачек (BITS)
-echo.
-powershell -NoProfile -ExecutionPolicy Bypass -Command ^
- "$bits = Get-BitsTransfer -AllUsers -ErrorAction SilentlyContinue | Where-Object { $_.State -match 'Transferring|Connecting|Queued' };" ^
- "if ($bits) {" ^
- "    $totalSize = [Math]::Round(($bits | Measure-Object -Property BytesTotal -Sum).Sum / 1Mb, 2);" ^
- "    Write-Host ('[^!] Идет фоновая загрузка: {0} файлов ({1} МБ)' -f ($bits.Count), $totalSize) -ForegroundColor Yellow" ^
- "} else {" ^
- "    Write-Host '[ok] BITS: Системные загрузки не обнаружены' -ForegroundColor Gray" ^
- "}"
-
-:: cpu check
-echo.
-powershell -NoProfile -ExecutionPolicy Bypass -Command ^
- "$load = (Get-CimInstance Win32_Processor | Measure-Object -Property LoadPercentage -Average).Average;" ^
- "if ($load -gt 80) {" ^
- "    Write-Host ('[^!] CPU Load: {0}%% - High' -f $load) -ForegroundColor Red" ^
- "} else {" ^
- "    Write-Host ('[ok] CPU Load: {0}%%' -f $load) -ForegroundColor Gray" ^
- "}"
-
-:: Проверка текущей нагрузки на сеть (входящий трафик)
-echo.
-powershell -NoProfile -ExecutionPolicy Bypass -Command ^
- "$adapter = Get-NetAdapter -Physical | Where-Object { $_.Status -eq 'Up' } | Select-Object -First 1;" ^
- "if (-not $adapter) { Write-Host '[^!] Активный адаптер не найден' -ForegroundColor Red; exit };" ^
- "$stat1 = $adapter | Get-NetAdapterStatistics;" ^
- "$val1 = $stat1.ReceivedBytes + $stat1.SentBytes;" ^
- "Start-Sleep -Seconds 1;" ^
- "$stat2 = $adapter | Get-NetAdapterStatistics;" ^
- "$val2 = $stat2.ReceivedBytes + $stat2.SentBytes;" ^
- "$speed = [Math]::Round(($val2 - $val1) * 8 / 1Mb, 2);" ^
- "if ($speed -gt 10) {" ^
- "    Write-Host ('[^!] Текущая нагрузка сети: {0} Мбит/с. Канал чем-то занят^!' -f $speed) -ForegroundColor Yellow" ^
- "} else {" ^
- "    Write-Host ('[ok] Network Load: {0} Mbps' -f $speed) -ForegroundColor Gray" ^
- "}"
-
-:: Проверка потерь и стабильности задержки (Jitter)
-echo.
-echo [*] Тестирование стабильности канала (10 пакетов)...
-powershell -NoProfile -ExecutionPolicy Bypass -Command ^
- "$config = Get-NetIPConfiguration | Where-Object { $_.IPv4DefaultGateway -ne $null };" ^
- "$dns = $config.DNSServer.ServerAddresses | Where-Object { $_ -match '\.' } | Select-Object -First 1;" ^
- "if (-not $dns) { $dns = '1.1.1.1' };" ^
- "Write-Host ('[*] Цель: {0}' -f $dns) -ForegroundColor Gray;" ^
- "$p = Test-Connection -ComputerName $dns -Count 10 -ErrorAction SilentlyContinue;" ^
- "if (-not $p) { Write-Host '[^!] Нет связи с сервером.' -ForegroundColor Red; exit };" ^
- "$v = $p | Where-Object { $_.ResponseTime -ne $null } | ForEach-Object { [double]$_.ResponseTime };" ^
- "$c = $v.Count;" ^
- "$loss = [math]::Round(((10 - $c) / 10) * 100);" ^
- "$avg = if ($c -gt 0) { ($v | Measure-Object -Average).Average } else { 0 };" ^
- "$j = 0;" ^
- "if ($c -gt 1) {" ^
- "    $d = for($i=1; $i -lt $c; $i++) { [Math]::Abs($v[$i] - $v[$i-1]) };" ^
- "    $j = ($d | Measure-Object -Average).Average;" ^
- "};" ^
- "if ($loss -gt 0) {" ^
- "    Write-Host ('[^!] Потери пакетов: {0}%%' -f $loss) -ForegroundColor Red" ^
- "} else {" ^
- "    Write-Host '[ok] Packet Loss: 0%%' -ForegroundColor Gray" ^
- "};" ^
- "if ($j -gt 15) {" ^
- "    Write-Host ('[^!] Высокий джиттер: {0:N1} мс' -f $j) -ForegroundColor Yellow" ^
- "} else {" ^
- "    Write-Host ('[ok] Jitter: {0:N1} ms (Avg: {1:N0} ms)' -f $j, $avg) -ForegroundColor Gray" ^
- "}"
+ "Write-Host '';" ^
+ "" ^
+ "Write-Host 'Checking Driver Optimizations...';" ^
+ "$adv = Get-NetAdapterAdvancedProperty -Name $ad.Name -ErrorAction SilentlyContinue;" ^
+ "$flow = $adv | Where-Object { $_.DisplayName -match 'Flow|потоком' -or $_.RegistryKeyword -eq 'FlowControl' };" ^
+ "if ($flow) { if ($flow.DisplayValue -match 'Disabled|Off|Выкл|none') { W-Ok 'Flow Control: Disabled' } else { W-Wn 'Flow Control: Enabled' } } else { W-Ok 'Flow Control: Not supported' };" ^
+ "" ^
+ "$intM = $adv | Where-Object { $_.RegistryKeyword -eq 'InterruptModeration' -or $_.DisplayName -match 'Interrupt|Модерация' };" ^
+ "if ($intM) { if ($intM.DisplayValue -match 'Disabled|Off|Выкл') { W-Ok 'Interrupt Moderation: Disabled' } else { W-Wn 'Interrupt Moderation: Enabled' } } else { W-Ok 'Interrupt Moderation: Not supported' };" ^
+ "Write-Host '';" ^
+ "" ^
+ "$tcpK = 'HKLM:\SYSTEM\CurrentControlSet\Services\Tcpip\Parameters\Interfaces\' + $ad.InterfaceGuid;" ^
+ "if (Test-Path $tcpK) {" ^
+ "  $taf = (Get-ItemProperty $tcpK -Name TcpAckFrequency -ErrorAction SilentlyContinue).TcpAckFrequency;" ^
+ "  if ($taf -eq 1) { W-Ok 'TCP Ack Frequency: Optimized (1)' } else { W-Wn 'TCP Ack Frequency: Default' };" ^
+ "} else { W-Wn 'TCP Ack Frequency: Registry path not found' };" ^
+ "Write-Host '';" ^
+ "" ^
+ "$cpu = (Get-CimInstance Win32_Processor).LoadPercentage;" ^
+ "if ($cpu -gt 80) { W-Er ('CPU Load: ' + $cpu + '%%') } else { W-Ok ('CPU Load: ' + $cpu + '%%') };"
 
 :end-of-net-diag
 echo.
