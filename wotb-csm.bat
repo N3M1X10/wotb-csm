@@ -6,12 +6,13 @@ chcp 65001>nul
 :request-admin-rights
 set adm_arg=%1
 if "%adm_arg%" == "admin" (
-    title admin
+    rem dn
 ) else (
     echo [93m[powershell] Requesting admin rights...
     powershell -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command "Start-Process 'cmd.exe' -ArgumentList '/k \"\"%~f0\" admin\"' -Verb RunAs"
     exit /b
 )
+
 
 :ask
 endlocal
@@ -720,8 +721,8 @@ powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command ^
     "    $item = Get-ItemProperty $regs -ErrorAction SilentlyContinue | Where-Object { ($_.DisplayName -like \"*$lName*\" -or $_.PSChildName -like \"*$lName*\") } | Select-Object -First 1;" ^
     "    if ($item.InstallLocation) { $f = Join-Path $item.InstallLocation $lExe; if (Test-Path $f) { return $f } }" ^
     "    if ($item.DisplayIcon) { $f = Join-Path (Split-Path $item.DisplayIcon -Parent) $lExe; if (Test-Path $f) { return $f } }" ^
-    "    $dirs = @($env:ProgramFiles, ${env:ProgramFiles(x86)}, $env:AppData, $env:LocalAppData, 'C:\Games', 'C:\ProgramData');" ^
-    "    $subs = @('Lesta\GameCenter', 'Wargaming.net\GameCenter', 'Wargaming.net\WGC');" ^
+    "    $dirs = [System.IO.DriveInfo]::GetDrives() | Where-Object { $_.DriveType -eq 'Fixed' } | Select-Object -ExpandProperty RootDirectory;" ^
+    "    $subs = @('Games\Lesta\GameCenter', 'Lesta\GameCenter', 'Wargaming.net\WGC', 'Program Files (x86)\Lesta\GameCenter');" ^
     "    foreach ($d in $dirs) { foreach ($s in $subs) { $f = Join-Path (Join-Path $d $s) $lExe; if (Test-Path $f) { return $f } } }" ^
     "    return $null" ^
     "}" ^
@@ -766,18 +767,13 @@ powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command ^
     "    }" ^
     "}" ^
     "$foundPaths = @();" ^
-    "$searchDirs = @('C:\Games', $env:ProgramFiles, ${env:ProgramFiles(x86)}, $env:AppData, $env:LocalAppData);" ^
+    "$allDrives = [System.IO.DriveInfo]::GetDrives() | Where-Object { $_.DriveType -eq 'Fixed' } | Select-Object -ExpandProperty RootDirectory;" ^
     "foreach ($a in $apps) {" ^
-    "    $path = $null;" ^
-    "    foreach ($d in $searchDirs) {" ^
-    "        if (Test-Path $d) {" ^
-    "            $foundFile = Get-ChildItem -Path $d -Filter $a.exe -Recurse -Depth 3 -ErrorAction SilentlyContinue | Select-Object -ExpandProperty FullName -First 1;" ^
-    "            if ($foundFile) { $path = $foundFile; break; }" ^
-    "        }" ^
-    "    }" ^
-    "    if ($path) {" ^
-    "        if (-not ($foundPaths | Where-Object { $_.Path -eq $path })) {" ^
-    "            $foundPaths += [PSCustomObject]@{ Game=$a.name; Path=$path; LName=$a.lName; LExe=$a.lExe; LProc=$a.lProc; LTitle=$a.lTitle };" ^
+    "    foreach ($drive in $allDrives) {" ^
+    "        $foundFile = Get-ChildItem -Path $drive -Filter $a.exe -Recurse -ErrorAction SilentlyContinue | Select-Object -ExpandProperty FullName -First 1;" ^
+    "        if ($foundFile) {" ^
+    "            $foundPaths += [PSCustomObject]@{ Game=$a.name; Path=$foundFile; LName=$a.lName; LExe=$a.lExe; LProc=$a.lProc; LTitle=$a.lTitle };" ^
+    "            break;" ^
     "        }" ^
     "    }" ^
     "}" ^
@@ -798,7 +794,6 @@ powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command ^
     "    }" ^
     " Start-Sleep -s 2;" ^
     "} else { exit }"
-
 rem goto endfunc
 goto ask
 
@@ -968,7 +963,6 @@ powershell -NoProfile -ExecutionPolicy Bypass -Command ^
  "    if (-not $isHwEnabled) { Write-Host 'Рекомендуется включить RSS или увеличить количество очередей.' -ForegroundColor Gray }" ^
  "}"
 
-
 :: Проверка модерации прерываний
 echo.
 powershell -NoProfile -ExecutionPolicy Bypass -Command ^
@@ -992,12 +986,13 @@ powershell -NoProfile -ExecutionPolicy Bypass -Command ^
 :: Проверка автоподстройки TCP
 echo.
 powershell -NoProfile -ExecutionPolicy Bypass -Command ^
- "$tcp = (Get-NetTCPSetting -SettingName Internet).AutoTuningLevelLocal;" ^
+ "$tcp = (Get-NetTCPSetting | Where-Object { $_.AppliedSetting -eq 'Internet' -or $_.SettingName -eq 'InternetCustom' -or $_.SettingName -eq 'Internet' } | Select-Object -First 1).AutoTuningLevelLocal;" ^
  "if ($tcp -eq 'Normal') {" ^
  "    Write-Host '[ok] TCP Auto-Tuning: Normal' -ForegroundColor Gray" ^
  "} else {" ^
  "    Write-Host ('[^!] Автоподстройка TCP: {0}. Рекомендуется Normal.' -f $tcp) -ForegroundColor Yellow;" ^
- "    Write-Host '[i] Команда для исправления: netsh int tcp set global autotuninglevel=normal' -ForegroundColor Gray" ^
+ "    Write-Host '[i] Команда исправления (cmd): netsh int tcp set global autotuninglevel=normal' -ForegroundColor Gray;" ^
+ "    Write-Host '[i] Команда исправления (pwsh): Set-NetTCPSetting -SettingName Internet -AutoTuningLevelLocal Normal' -ForegroundColor Gray;" ^
  "}"
 
 :: Проверка оптимизации задержки TCP (NoDelay) для активного интерфейса
@@ -1102,13 +1097,11 @@ powershell -NoProfile -ExecutionPolicy Bypass -Command ^
  "    Write-Host ('[ok] Jitter: {0:N1} ms (Avg: {1:N0} ms)' -f $j, $avg) -ForegroundColor Gray" ^
  "}"
 
-
 :end-of-net-diag
 echo.
 echo [92mДиагностика завершена[0m
 echo [0m[i] Каждый пункт без "ok" означает - предупреждение. Это означает, что вы можете воспользоваться поиском в интернете, для детального решения каждой сетевой проблемы со стороны вашей системы[0m
 exit /b
-
 
 
 :: end of a function
