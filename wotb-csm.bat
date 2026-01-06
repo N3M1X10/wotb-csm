@@ -17,7 +17,6 @@ if "%adm_arg%" == "admin" (
 :ask
 endlocal
 setlocal EnableDelayedExpansion
-
 cls
 title %~nx0
 echo [101;93mМеню настройки кластеров WOTB[0m
@@ -30,7 +29,7 @@ echo [96mba - Заблокировать все кластеры[0m
 echo [96muba - Разблокировать все кластеры[0m
 echo [93mСервисные операции с правилами:[0m
 echo [96m3 - [92mСоздать [96m/ [92mОбновить [96mправила для блокировки кластеров[0m
-echo [96m4 - [91mУдалить [96mвсе правила для блокировки кластеров[0m
+echo [96m4 - [91mУдалить [96mвсе правила игры в брандмауэре[0m
 echo [96m5 - [93mОбновить [96mдиапазоны ip-адресов для блокировки[0m
 echo.
 echo [93mПрочие опции:[0m
@@ -96,7 +95,6 @@ if "%select%"=="end"   goto close
 if "%select%"=="close" goto close
 
 rem start /b "" mshta vbscript:Execute("CreateObject(""WScript.Shell"").Popup ""Ошибка. Команда не распознана"", 1, ""%~nx0"", 16:close")
-rem powershell -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command "(New-Object -ComObject WScript.Shell).Popup('Ошибка : Команда не распознана', 2, '%~n0%~x0', 16)">nul
 goto ask
 
 
@@ -198,7 +196,7 @@ powershell -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command ^
             "Enable-NetFirewallRule -Name $backup -ErrorAction SilentlyContinue;" ^
         "}" ^
     "}"
-echo [0mГотово^^![0m
+echo [36mГотово^^![0m
 
 echo.
 echo [93mСписок найденных активных доменов и их диапазонов:[0m
@@ -213,7 +211,13 @@ goto endfunc
 
 :create-rules
 cls
-choice /C "10" /m "[93m[?] Подтвердите [36mСОЗДАНИЕ [93mправил в брандмауэре[0m"
+choice /C "10" /m "[93m[?] Подтвердите [36mСОЗДАНИЕ [93mправил блокировки[0m"
+if "%errorlevel%"=="1" (goto create-rules-y)
+if "%errorlevel%"=="2" (goto ask)
+
+:create-rules
+cls
+choice /C "10" /m "[93m[?] Подтвердите  [36mСОЗДАНИЕ [93mправил блокировки[0m"
 if "%errorlevel%"=="1" (goto create-rules-y)
 if "%errorlevel%"=="2" (goto ask)
 
@@ -222,56 +226,70 @@ set rule_description="Правило для блокирования класт�
 
 :: Удаляем все старые правила
 call :remove-rules
+:: Чистим кэш dns
+ipconfig /flushdns>nul
 
 echo.
 echo [90mПытаюсь создать правила...[0m
-:: Читаем файл и создаем правила
-:: %%a - домен (имя правила), %%b - диапазон (IP/CIDR)
-call :check-ranges-file
-if exist "%ranges_file%" (
-    for /f "usebackq tokens=1,2 delims=:" %%a in ("%ranges_file%") do (
-        
-        :: Добавляем новое правило
-        netsh advfirewall firewall add rule name="%%a_block" description=%rule_description% dir=out action=block remoteip=%%b >nul 2>&1
-        if !errorlevel! neq 0 (
-            echo [91mОшибка создания правила[0m
-        ) else (
-            echo [92m[+] [93mСоздано правило: %%a [%%b][0m
-        )
-    )
-    echo [90mГотово[0m
-) else (
+
+call :check-ranges-file "silent"
+if not exist "%ranges_file%" (
     echo [90mНет файла с диапазонами[0m
+    goto endfunc
 )
 
+
+echo [90mПодготовка правил...[0m
+(
+    for /f "usebackq tokens=1,2 delims=:" %%a in ("%ranges_file%") do (
+        echo advfirewall firewall add rule name="%%a_block_out" description=%rule_description% dir=out action=block remoteip=%%b
+        echo advfirewall firewall add rule name="%%a_block_in" description=%rule_description% dir=in action=block remoteip=%%b
+    )
+) | netsh >nul 2>&1
+
+echo [90mПроверка создания правил...[0m
+for /f "usebackq tokens=1,2 delims=:" %%a in ("%ranges_file%") do (
+    set "found="
+    :: Проверяем наличие через встроенный фильтр findstr по выводу команды
+    for /f "tokens=*" %%i in ('netsh advfirewall firewall show rule name^="%%a_block_out" 2^>nul ^| findstr /C:"%%a_block_out"') do (
+        set "found=1"
+    )
+    if not defined found (
+        echo [91mОшибка создания правила "%%a"[0m
+    ) else (
+        echo [92m[+] [93mСоздано правило домена: "%%a" [%%b][0m
+    )
+)
+for /f "usebackq tokens=1,2 delims=:" %%a in ("%ranges_file%") do (
+    :: Редактируем hosts
+    call :edit-hosts "%%a" "block"
+)
+
+echo [90mГотово[0m
 
 echo.
 echo [101;93m[i] ПРОЧТИ МЕНЯ ^^!^^!^^![0m
 echo [93m[*] [36mКогда правила создадутся - они сразу заблокируют подключения по своим доменам[0m
 echo [93m[*] [36mВыбери, которые тебе нужны и разблокируй в - главном меню[0m
 echo.
-echo [93m[*] [36mТакже удалены исключения и системные правила-допуски.[0m
-echo [93m[*] [36mЭто в теории может вызвать инициализацию сетевой части игры.[0m
-echo [36mА вдруг? :D[0m
-echo.
-echo [93m[*] [36mТакже советую перезапустить игру после обновления правил. Так игра начнёт инициализацию в сети и пустит вас поиграть (если перестала пускать)[0m
-echo [93m[*] [36mГлавное не отклонить запрос от брандмауэра, на разрешение подключения приложения к сети[0m
+echo [93m[*] [36mОбращаю внимание, что блокировка не только - в брандмауэре, но и - в файле hosts[0m
 goto endfunc
 
 
 
 :rules-remove-confirm
 cls
-choice /C "10" /m "[93m[?] Подтвердите [91mУДАЛЕНИЕ [93mправил из брандмауэра[0m"
+choice /C "10" /m "[93m[?] Подтвердите [91mУДАЛЕНИЕ [93mправил блокировки[0m"
 if "%errorlevel%"=="1" (call :remove-rules & goto endfunc)
 if "%errorlevel%"=="2" (goto ask)
 
 :remove-rules
 echo.
-echo [90mПытаюсь удалить правила tanksblitz в брандмауэре...[0m
+echo [90mПытаюсь удалить правила WOTB в брандмауэре...[0m
+
 
 powershell -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command ^
-$r = Get-NetFirewallRule ^| Where-Object { $_.DisplayName -like '*tanksblitz*' -or $_.DisplayName -like '*Tanks_Blitz*' -or $_.DisplayName -like '*wotblitz*' }; ^
+$r = Get-NetFirewallRule ^| Where-Object { $_.DisplayName -like 'login*.tanksblitz.*' -or $_.DisplayName -like 'login*.wotblitz.*' }; ^
 if ($r) { ^
     $r ^| Remove-NetFirewallRule; ^
     foreach ($rule in $r) { ^
@@ -280,6 +298,11 @@ if ($r) { ^
 } else { ^
     Write-Host '[91mПравила не найдены :([0m' ^
 }
+echo [90mПытаюсь удалить правила WOTB в hosts...[0m
+call :check-domains-file "silent"
+for /f "usebackq tokens=1,2 delims=:" %%a in ("!domains_file!") do (
+    call :edit-hosts "%%a" "unblock"
+)
 
 echo [90mГотово[0m
 exit /b
@@ -296,10 +319,12 @@ exit/b
 :change-all
 if "%~1"=="block" (
     set "msg=Блокировка"
-    set "act=yes"
+    set "state=yes"
+    set act=%~1
 ) else if "%~1"=="unblock" (
     set "msg=Разблокировка"
-    set "act=no"
+    set "state=no"
+    set act=%~1
 ) else (
     echo Ошибка изменения всех правил
     exit/b
@@ -308,15 +333,21 @@ if "%~1"=="block" (
 call :check-rules
 if "!errorlevel!"=="0" (exit/b)
 call :check-ranges-file
+if "!errorlevel!"=="0" (exit/b)
 
 if exist "!ranges_file!" (
     echo [90mЗапускаю перебор всех правил...[0m
 
     (
-        cmd /d /v:on /c "for /f "usebackq tokens=1,2 delims=:" %%a in ("!ranges_file!") do @echo advfirewall firewall set rule name="%%a_block" dir=out new enable=!act!"
+        cmd /d /v:on /c "for /f "usebackq tokens=1,2 delims=:" %%a in ("!ranges_file!") do @echo advfirewall firewall set rule name="%%a_block_out" dir=out new enable=!state!"
+    ) 2>nul | netsh >nul 2>&1
+
+    (
+        cmd /d /v:on /c "for /f "usebackq tokens=1,2 delims=:" %%a in ("!ranges_file!") do @echo advfirewall firewall set rule name="%%a_block_in" dir=in new enable=!state!"
     ) 2>nul | netsh >nul 2>&1
 
     for /f "usebackq tokens=1,2 delims=:" %%a in ("!ranges_file!") do (
+        call :edit-hosts "%%a" "!act!" "silent"
         echo [90m!msg!: %%a [%%b][0m
     )
     
@@ -328,23 +359,78 @@ exit /b
 
 
 
+:edit-hosts
+set "domain=%~1"
+set "act=%~2"
+set "mode=%~3"
+set "entry=0.0.0.0 %domain%"
+set "TH=%TEMP%\h.tmp"
+set "hosts_path=%SystemRoot%\System32\drivers\etc\hosts"
+
+attrib -r "%hosts_path%"
+
+:: Проверяем наличие домена
+findstr /L /C:"%domain%" "%hosts_path%" >nul
+set "exists=%errorlevel%"
+
+:: Логика выхода, если действие не требуется
+if "%act%"=="block" if %exists% equ 0 (
+    if /i "%mode%" neq "silent" echo [90mуже есть в файле hosts: "%domain%"[0m
+    exit /b
+)
+if "%act%"=="unblock" if %exists% neq 0 exit /b
+
+:: Выполнение операций
+if "%act%"=="block" (
+    echo.>>"%hosts_path%"
+    echo %entry%>>"%hosts_path%"
+)
+if "%act%"=="unblock" (
+    findstr /V /L /C:"%domain%" "%hosts_path%" > "%TH%"
+    move /Y "%TH%" "%hosts_path%" >nul
+)
+
+:: Чистка пустых строк
+findstr /V /R /C:"^[ ]*$" "%hosts_path%" > "%TH%"
+move /Y "%TH%" "%hosts_path%" >nul
+
+:: Вывод результата
+if "%act%"=="unblock" (
+    findstr /L /C:"%domain%" "%hosts_path%" >nul && (
+        echo [91m[^^!^^!^^!] [90mошибка: "%domain%" остался[0m
+    ) || (
+        if /i "%mode%" neq "silent" echo [90mудален из hosts: "%domain%"[0m
+    )
+)
+
+if "%act%"=="block" (
+    if /i "%mode%" neq "silent" echo [90mзаблокирован в hosts: "%domain%"[0m
+)
+
+if exist "%TH%" del /f /q "%TH%"
+exit /b
+
+
+
+
+
 :cluster-manager
 if "%act%"=="block" (
     set "func_title=[91m[ [93m- - - БЛОКИРОВКА КЛАСТЕРА - - -[91m ][0m"
-    echo !func_title!
-    echo.
     set rule_state=yes
 ) else (
     set "func_title=[92m[ [93m- - - РАЗБЛОКИРОВКА КЛАСТЕРА - - -[92m ][0m"
-    echo !func_title!
-    echo.
     set rule_state=no
 )
 
-call :check-rules "silent" && if "!errorlevel!" neq "0" (
-    echo [91m[i] Правила не найдены. [93mСначала создайте правила через соответствующий пункт меню.[0m
-    goto endfunc
-)
+echo !func_title!
+echo.
+
+rem call :check-rules "silent"
+rem if "!errorlevel!" neq "1" (
+rem     echo [91m[i] Правила не найдены. [93mСначала создайте правила через соответствующий пункт меню.[0m
+rem     goto endfunc
+rem )
 call :check-ranges-file "silent"
 
 
@@ -387,7 +473,12 @@ if "!status!"=="NotExist" (
 )
 
 :: Изменяем правило
-netsh advfirewall firewall set rule name="!sel_domain!_block" dir=out new enable=%rule_state% >nul 2>&1
+call :edit-hosts "!sel_domain!" "%act%" "silent"
+
+:: Формируем команды в одну строку, разделяя их амперсандом, netsh получит их как единый пакет для исполнения
+netsh advfirewall firewall set rule name="!sel_domain!_block_out" dir=out new enable=%rule_state% >nul 2>&1 & ^
+netsh advfirewall firewall set rule name="!sel_domain!_block_in" dir=in new enable=%rule_state% >nul 2>&1
+
 :: Проверка ошибок
 if %errorlevel% neq 0 (
     echo [90m[i] Ошибка при применении правила netsh для: "!sel_domain!"[0m
@@ -418,8 +509,8 @@ for /f "tokens=1 delims==" %%v in ('set cluster[ 2^>nul') do set "%%v="
 for /f "tokens=1 delims==" %%v in ('set status[ 2^>nul') do set "%%v="
 for /f "tokens=1 delims==" %%v in ('set "fw_db_" 2^>nul') do set "%%v="
 
-:: 2. Сбор данных из реестра (Исправленный парсинг знака =)
-for /f "tokens=2*" %%A in ('reg query "HKEY_LOCAL_MACHINE\SYSTEM\CurrentControlSet\Services\SharedAccess\Parameters\FirewallPolicy\FirewallRules" /f "_block" 2^>nul ^| findstr "_block"') do (
+:: 2. Сбор данных из реестра
+for /f "tokens=2*" %%A in ('reg query "HKEY_LOCAL_MACHINE\SYSTEM\CurrentControlSet\Services\SharedAccess\Parameters\FirewallPolicy\FirewallRules" /f "_block_out" 2^>nul ^| findstr "_block_out"') do (
     set "raw=%%B"
     
     :: Извлекаем Name и отрезаем лишний знак =
@@ -443,11 +534,11 @@ for /f "tokens=2*" %%A in ('reg query "HKEY_LOCAL_MACHINE\SYSTEM\CurrentControlS
 for /f "usebackq tokens=1 delims=:" %%a in ("%ranges_file%") do (
     set /a count+=1
     set "cluster[!count!]=%%a"
-    set "target=%%a_block"
+    set "target=%%a_block_out"
     
     set "status=NotExist"
     
-    :: Проверка существования ключа в памяти (теперь без знака =)
+    :: Проверка существования ключа в памяти
     if defined fw_db_!target! (
         for /f "delims=" %%V in ("!target!") do (
             if /i "!fw_db_%%V!"=="TRUE" (
@@ -481,6 +572,7 @@ exit /b
 cls
 echo [96m[ [93m- - - СТАТУС ПРАВИЛ БЛОКИРОВКИ - - - [96m][0m
 echo.
+call :check-rules & if "!errorlevel!" neq "1" (goto endfunc)
 call :check-ranges-file "silent"
 call :draw-clusters-list
 goto endfunc
@@ -490,23 +582,49 @@ goto endfunc
 :check-rules
 if "%~1" neq "silent" (echo [90mпроверка правил...[0m)
 call :check-ranges-file "silent"
-set rules_count=0
-if exist "%ranges_file%" (
-    for /f "usebackq tokens=1,2 delims=:" %%a in ("%ranges_file%") do (
-        netsh advfirewall firewall show rule name="%%a_block" >nul 2>&1
-        if !errorlevel! equ 0 (
-            set /a rules_count+=1
+
+set out_rules_count=0
+set in_rules_count=0
+
+if exist "!ranges_file!" (
+    set "tmp_raw=%temp%\fw_raw.tmp"
+    set "tmp_filtered=%temp%\fw_filtered.tmp"
+
+    netsh advfirewall firewall show rule name=all > "!tmp_raw!" 2>&1
+    findstr /i "_block_" "!tmp_raw!" > "!tmp_filtered!" 2>nul
+
+    for /f "usebackq tokens=2* delims=: " %%i in ("!tmp_filtered!") do (
+        set "r_name=%%j"
+        for /f "usebackq tokens=1 delims=:" %%a in ("!ranges_file!") do (
+            if "!r_name!"=="%%a_block_out" set /a out_rules_count+=1
+            if "!r_name!"=="%%a_block_in" set /a in_rules_count+=1
         )
     )
+    :: Удаляем временные файлы
+    del /f /q "!tmp_raw!" "!tmp_filtered!" >nul 2>&1
 )
-if "%~1"=="silent" (exit/b)
-if "!rules_count!" geq "1" (
-    echo [90mправила найдены[0m
-    exit /b 1
+:: Выводим данные в соответствии с режимом вывода
+if "%~1" neq "silent" (
+    if "!out_rules_count!" geq "1" (
+        echo [90mправила найдены[0m
+        exit /b 1
+    ) else (
+        if "!in_rules_count!" geq "1" (
+            echo.
+            echo [91m[^^!^^!^^!] [93mНайдено несоответствие среди правил.[0m
+            echo [96mНайдены правила блокировки входящего подключения, но нет для исходящего[0m
+            echo [93m[i]  [36mПересоздайте правила в главном меню[0m
+            echo.
+            exit /b 0
+        )
+        echo [90mправила не найдены[0m
+        exit /b 0
+    )
 ) else (
-    echo [90mправила не найдены[0m
-    exit /b 0
+    if "!out_rules_count!" geq "1" (exit /b 1) else (exit /b 0)
+    if "!in_rules_count!" geq "1" (exit /b 1) else (exit /b 0)
 )
+
 
 
 
@@ -525,7 +643,7 @@ if "!errorlevel!" lss "1" (
 call :check-domains-file
 
 echo.
-echo [96mПожалуйста, подождите. Идет опрос серверов...[36m
+echo [94m[ [36m- - - Запускаю проверку - - - [94m][36m
 echo.
 
 powershell -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command ^
@@ -616,6 +734,7 @@ rem echo.
 rem echo [90mcis: "!cis_wotb_path!"[0m
 rem echo [90meu: "!eu_wotb_path!"[0m
 
+:: папка cis игры
 if not exist "!cis_wotb_path!" (
     echo.
     echo [91m[^^!] Ошибка доступа. [36mПапка кэша игры (tanksblitz^) не найдена
@@ -624,6 +743,7 @@ if not exist "!cis_wotb_path!" (
     call :wotb-cleaner "%~1" "!cis_wotb_path!"
 )
 
+:: папка eu игры
 if not exist "!eu_wotb_path!" (
     echo.
     echo [91m[^^!] Ошибка доступа. [36mПапка кэша игры (wotblitz^) не найдена
@@ -632,6 +752,10 @@ if not exist "!eu_wotb_path!" (
     call :wotb-cleaner "%~1" "!eu_wotb_path!"
 )
 
+:: кэш dns
+ipconfig /flushdns>nul
+
+:: если игра была запущена то возвращаем её назад
 if defined exeToStart (
     echo.
     echo [93m[ Перезапуск игры... ][0m
@@ -653,12 +777,13 @@ if "%~1"=="entire" (
     echo.
     echo [94m[ [36mудаляем кэш, в корне папки [94m][0m
     cd /d "!wotb_path!
-    call :cycle-delete "*.dat;*.bin;*.yaml;*.archive;startupOptions.*;optionsGlobal.*;*.txt;*.log;*.bk" "files"
+     call :cycle-delete "*.txt;*.log;*.bk;*.dat;*.bin;*.yaml;*.archive;startupOptions.*;optionsGlobal.*" "files"
     rem call :cycle-delete "region_cache" "folders"
     echo.
     echo [94m[ [36mчистим кэш внутри папок [94m][0m
     cd /d "cache"
-    rem call :cycle-delete "base_stuff_*" "files"
+    call :cycle-delete "server_config_*" "files"
+    rem image_cache
 )
 exit /b
 
@@ -710,7 +835,7 @@ exit/b
 cls
 echo [92m[ [93m- - - Запуск WOTB - - - [92m][0m
 echo.
-echo [90mПробую запустить либо найти игры (tanksblitz/wotblitz)...[0m
+echo [90mПробую запустить либо найти игры WOTB...[0m
 powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command ^
     "$eof_delay = {Start-Sleep -s 1};" ^
     "$apps = @(" ^
@@ -886,7 +1011,7 @@ if "!errorlevel!"=="0" (
     echo [92m[ok][90m killer network
 )
 
-echo.&echo [90mПерехожу к powershell проверкам...
+echo.&echo [94m[ [36m- - - Перехожу к powershell проверкам - - - [94m]&echo [0m[90m
 powershell -NoProfile -ExecutionPolicy Bypass -Command ^
  "$ErrorActionPreference = 'SilentlyContinue';" ^
  "function W-Ok($m) { Write-Host ('[92m[ok][90m ' + $m) };" ^
