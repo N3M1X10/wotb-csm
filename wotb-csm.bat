@@ -3,22 +3,37 @@ chcp 65001>nul
 
 :: Source: https://github.com/N3M1X10/wotb-csm
 
+rem :request-admin-rights
+rem set adm_arg=%1
+rem if "%adm_arg%" == "admin" (
+rem     rem dn
+rem ) else (
+rem     echo [93m[powershell] Requesting admin rights...[0m
+rem     powershell -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command "Start-Process 'cmd.exe' -ArgumentList '/k \"\"%~f0\" admin\"' -Verb RunAs"
+rem     exit /b
+rem )
+
 :request-admin-rights
-set adm_arg=%1
-if "%adm_arg%" == "admin" (
-    rem dn
-) else (
-    echo [93m[powershell] Requesting admin rights...
-    powershell -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command "Start-Process 'cmd.exe' -ArgumentList '/k \"\"%~f0\" admin\"' -Verb RunAs"
+set "adm_arg=%~1"
+if "%adm_arg%" neq "admin" (
+    echo [93m[mshta vbscript] Requesting admin rights...[0m
+    mshta vbscript:CreateObject("Shell.Application"^).ShellExecute("cmd.exe","/c ""%~f0"" admin","","runas",1^)(window.close^)
     exit /b
+) else (
+if "%adm_arg%"=="admin" shift
+    echo [elevated]
+    echo.
 )
 
 
 :ask
-endlocal
-setlocal EnableDelayedExpansion
+:: сброс памяти процесса
 cls
 title %~nx0
+endlocal
+setlocal EnableDelayedExpansion
+
+:: Отрисовка меню
 echo [101;93mМеню настройки кластеров WOTB[0m
 echo.
 echo [93mМеню управления статусом правил:[0m
@@ -35,9 +50,9 @@ echo.
 echo [93mПрочие опции:[0m
 echo [96mp / play - [92mзапустить WOTB[0m
 echo [96mk / kill - [91mЗакрыть всё связанное с WOTB[0m
-echo [96mc / clean - [93mПочистить кэш игры[0m
+echo [96mc / clean - [93mПочистить кэш игры (+перезапуск игры)[0m
 echo [96mreset - [91mсбросить данные WOTB[0m
-echo [96mping - Измерить задержку до кластеров[0m
+echo [96ml / ping - Измерить задержку до кластеров[0m
 echo [96md / diag - Провести диагностику сети[0m
 echo [96ms / stat - Узнать состояние правил[0m
 echo [96mf / wf - Открыть монитор Windows Firewall[0m
@@ -45,12 +60,12 @@ echo [96mh / help / git - Перейти на страницу GitHub[0m
 echo [96mr - [93mПерезапустить этот пакет[0m
 echo [96mx - [91mЗавершить работу[0m
 
-
 :: Вопрос от функции
 echo.
 set select=
 set /p select="[92mВвод:[0m "
 
+:: Сопоставление ввода с командами и их настройками
 if "%select%"=="1" cls & set "act=block" & call :cluster-manager
 if "%select%"=="2" cls & set "act=unblock" & call :cluster-manager
 
@@ -72,6 +87,7 @@ if "%select%"=="clean" call :wotb-cleaner-setup & goto endfunc
 
 if "%select%"=="reset" call :wotb-cleaner-setup "entire" & goto endfunc
 
+if "%select%"=="l" goto check-ping
 if "%select%"=="ping" goto check-ping
 
 if "%select%"=="d"    cls & call :network-diagnostics & goto endfunc
@@ -94,7 +110,15 @@ if "%select%"=="x"     goto close
 if "%select%"=="end"   goto close
 if "%select%"=="close" goto close
 
-rem start /b "" mshta vbscript:Execute("CreateObject(""WScript.Shell"").Popup ""Ошибка. Команда не распознана"", 1, ""%~nx0"", 16:close")
+:: mismatch
+set draw_mismatch=
+if "!draw_mismatch!"=="1" (
+    if "%select%"=="" (
+        start /b "" mshta vbscript:Execute("CreateObject(""WScript.Shell"").Popup ""Ошибка: Пустой ввод"", 1, ""%~nx0"", 16:close"^)
+    ) else (
+        start /b "" mshta vbscript:Execute("CreateObject(""WScript.Shell"").Popup ""Ошибка: Команда не распознана."" & vbCrLf & ""Проверьте выбранную раскладку или правильность ввода."", 2, ""%~nx0"", 16:close"^)
+    )
+)
 goto ask
 
 
@@ -412,8 +436,6 @@ exit /b
 
 
 
-
-
 :cluster-manager
 if "%act%"=="block" (
     set "func_title=[91m[ [93m- - - БЛОКИРОВКА КЛАСТЕРА - - -[91m ][0m"
@@ -651,6 +673,7 @@ powershell -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command ^
     "$filter = \"DisplayName like '%%tanksblitz%%' or DisplayName like '%%wotblitz%%'\";" ^
     "$rules = Get-CimInstance -Namespace root/standardcimv2 -ClassName MSFT_NetFirewallRule -Filter $filter -ErrorAction SilentlyContinue;" ^
     "$backup = @();" ^
+    "$tcpUsed = $false;" ^
     "if ($rules) {" ^
         "foreach($r in $rules) { if($r.Enabled -eq 1) { $backup += $r.InstanceID } };" ^
         "Write-Host 'Временное отключение правил...';" ^
@@ -662,17 +685,57 @@ powershell -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command ^
         "$instances = foreach ($d in $domains) {" ^
             "$ps = [PowerShell]::Create().AddScript({" ^
                 "param($d);" ^
-                "$p = Test-Connection -ComputerName $d -Count 2 -ErrorAction SilentlyContinue | Measure-Object -Property ResponseTime -Average;" ^
-                "if ($p.Count -gt 0) {" ^
-                    "$ms = [Math]::Round($p.Average);" ^
-                    "$c = if ($ms -lt 25) { '[92m' } elseif ($ms -lt 100) { '[93m' } else { '[91m' };" ^
-                    "return ('[90m[ [93m{0} [90m] {1}{2}ms[0m' -f $d.PadRight(25), $c, $ms)" ^
-                "} else { return ('[90m[ [93m{0} [90m] [90mНЕДОСТУПЕН[0m' -f $d.PadRight(25)) }" ^
+                "$results = @();" ^
+                "$note = '';" ^
+                "$usedTcpInLoop = $false;" ^
+                "for($i=0; $i -lt 2; $i++) {" ^
+                    "$sw = New-Object System.Diagnostics.Stopwatch;" ^
+                    "$client = New-Object System.Net.Sockets.TcpClient;" ^
+                    "try {" ^
+                        "$reply = $pinger.Send($d, 1000);" ^
+                        "if ($reply.Status -eq 'Success' -and $reply.RoundtripTime -gt 0) {" ^
+                            "$results += $reply.RoundtripTime;" ^
+                            "continue;" ^
+                        "}" ^
+                    "} catch {}" ^
+                    "$pinger = New-Object System.Net.NetworkInformation.Ping;" ^
+                    "try {" ^
+                        "$sw.Start();" ^
+                        "$connectTask = $client.ConnectAsync($d, 443);" ^
+                        "$connectTask.Wait(2000) | Out-Null;" ^
+                        "$sw.Stop();" ^
+                        "if ($client.Connected) {" ^
+                            "$results += $sw.Elapsed.TotalMilliseconds;" ^
+                            "$client.Close();" ^
+                            "$note = '  [90m(по TCP)[0m';" ^
+                            "$usedTcpInLoop = $true;" ^
+                            "continue;" ^
+                        "}" ^
+                    "} catch {}" ^
+                "}" ^
+                "if ($results.Count -gt 0) {" ^
+                    "$avg = ($results | Measure-Object -Average).Average;" ^
+                    "$displayMs = if ($avg -lt 1) { '<1' } else { [Math]::Round($avg).ToString() };" ^
+                    "$c = if ($avg -lt 25) { '[92m' } elseif ($avg -lt 100) { '[93m' } else { '[91m' };" ^
+                    "return @{ Output = ('[90m[ [93m{0} [90m] {1}{2}ms {3}[0m' -f $d.PadRight(25), $c, $displayMs, $note); TcpUsed = $usedTcpInLoop };" ^
+                "} else {" ^
+                    "return @{ Output = ('[90m[ [93m{0} [90m] [90mНЕДОСТУПЕН[0m' -f $d.PadRight(25)); TcpUsed = $false };" ^
+                "}" ^
             "}).AddArgument($d);" ^
             "@{ PS = $ps; Async = $ps.BeginInvoke() }" ^
         "};" ^
         "while ($instances.Async.IsCompleted -contains $false) { Start-Sleep -Milliseconds 50 };" ^
-        "foreach ($i in $instances) { Write-Host ($i.PS.EndInvoke($i.Async)); $i.PS.Dispose() };" ^
+        "foreach ($i in $instances) {" ^
+            "$result = $i.PS.EndInvoke($i.Async);" ^
+            "Write-Host ($result.Output);" ^
+            "if ($result.TcpUsed) { $tcpUsed = $true };" ^
+            "$i.PS.Dispose();" ^
+        "};" ^
+        "if ($tcpUsed) {" ^
+            "Write-Host '';" ^
+            "Write-Host '[93m[^!] [96mБыл применён замер [93mпо TCP[96m, вероятно мы стреляли в VPN или ICMP запросы блокируются по другой причине[0m';" ^
+            "Write-Host '';" ^
+        "}" ^
     "} finally {" ^
         "if ($backup) {" ^
             "Write-Host 'Возврат блокировок...';" ^
@@ -715,6 +778,7 @@ for /f "usebackq delims=" %%p in (`powershell -NoLogo -NoProfile -NonInteractive
     "        if ($path) {" ^
     "            $full = Get-ChildItem -Path $path -Filter $e -Recurse -EA 0 | Select-Object -ExpandProperty FullName -First 1;" ^
     "            Stop-Process -Name $n -Force -EA 0;" ^
+    "            Start-Sleep -s 1;" ^
     "            $proc | Wait-Process -EA 0;" ^
     "            if ($full) { Write-Output $full; break; }" ^
     "        }" ^
@@ -776,15 +840,16 @@ if "%~1"=="entire" (
 ) else (
     echo.
     echo [94m[ [36mудаляем кэш, в корне папки [94m][0m
-    cd /d "!wotb_path!
-     call :cycle-delete "*.txt;*.log;*.bk;*.dat;*.bin;*.yaml;*.archive;startupOptions.*;optionsGlobal.*" "files"
-    rem call :cycle-delete "region_cache" "folders"
+    cd /d "!wotb_path!" & call :cycle-delete "*.txt;*.log;*.bk;*.dat;*.bin;*.yaml;*.archive;startupOptions.*;optionsGlobal.*" "files"
+    rem call :cycle-delete "" "folders"
     echo.
-    echo [94m[ [36mчистим кэш внутри папок [94m][0m
-    cd /d "cache"
-    call :cycle-delete "server_config_*" "files"
-    rem image_cache
+    rem echo [94m[ [36mчистим кэш внутри папок [94m][0m
+    rem cd /d "cache" & call :cycle-delete "" "files"
 )
+
+:: [заметки]
+:: server_config_*_*.dat - хранит настройки чувствительности мыши
+:: game_options_local_options.dat - хранит настройки графики
 exit /b
 
 
@@ -795,8 +860,7 @@ echo.
 set count=0
 set "array=%~1"
 set "type=%~2"
-rem echo ARRAY: "[96m!array![0m"
-rem echo TYPE: "[96m!type![0m"
+set !array!="!array:;=" "!"
 ::array check
 if not defined array (
     echo [91m[^^!] Ошибка. Файлы в вызове не были определены (а что удаляем то?^)[0m
@@ -812,9 +876,8 @@ if "!type!"=="files" (
     exit /b
 )
 ::cleaner
-for %%t in (!array!="!array:;=" "!") do (
+for %%t in (!array!) do (
     set item=%%~t
-    rem echo our tar: "[96m!item![0m"
     if exist "!item!" (
         set /a count+=1
         if "!type!"=="files" (
@@ -944,9 +1007,10 @@ if "!errorlevel!"=="1" (echo [90mподтверждено[0m)
 if "!errorlevel!"=="2" (goto ask)
 :: Список процессов для завершения
 set "array=TanksBlitz.exe;wotblitz.exe;lgc.exe;wgc.exe"
+set !array!="!array:;=" "!"
 echo.
 echo [90mЗавершаем процессы...[0m
-for %%p in (!array!="!array:;=" "!") do (
+for %%p in (!array!) do (
     set item=%%~p
     :: Проверяем, запущен ли процесс, чтобы не спамить ошибками
     tasklist /fi "ImageName eq !item!" 2>NUL | find /i "!item!" >NUL
@@ -967,31 +1031,26 @@ echo [93m[i] [36mЭтот процесс может занять некото�
 
 :: VPN
 echo.
-sc query | findstr /I "VPN">nul
-if "!errorlevel!"=="0" (
-    echo [91m[^^!] Обнаружены службы VPN. [93mМогут влиять на пинг, если они в активном состоянии
-    sc query | findstr /I "VPN"
+set count=0
+set "array=VPN;Tunnel;WARP;cFosSpeed;zapret"
+set !array!="!array:;=" "!"
+for %%a in (!array!) do (
+    for /f "tokens=*" %%i in ('sc query ^| findstr /I "%%a"') do (
+        set /a "count+=1"
+    )
+)
+if "!count!" geq "1" (
+    echo [91m[^^!] [93mОбнаружены потенциальные службы, которые могут влиять на пинг, если они в активном состоянии:
+    for %%a in (!array!) do (
+        sc query | findstr /I "%%a">nul && (
+            echo [90mFound with: "%%a"[96m
+            sc query | findstr /I "%%a"
+        )
+    )
 ) else (
     echo [92m[ok][90m VPN
 )
-
-:: WARP
-echo [0m
-sc query | findstr /I "WARP">nul
-if "!errorlevel!"=="0" (
-    echo [91m[^^!] Обнаружен WARP. [93mОн может повлиять на пинг, если он в активном состоянии[0m
-) else (
-    echo [92m[ok][90m WARP
-)
-
-:: Проверка наличия драйвера cFosSpeed / ASUS GameFirst
-echo.
-sc query cFosSpeed >nul
-if "!errorlevel!"=="0" (
-    echo [91m[^^!] Обнаружен драйвер cFosSpeed (GameFirst^). [93mОн может конфликтовать с брандмауэром и вызывать статтеры[0m
-) else (
-    echo [92m[ok][90m traffic optimizer (cFosSpeed^)
-)
+set count=
 
 :: System Proxy
 echo.
@@ -1101,7 +1160,7 @@ goto :ask
 :restart
 cls
 endlocal
-cmd /c "%~f0" :
+start "" /b cmd /c "%~f0"
 exit
 
 
