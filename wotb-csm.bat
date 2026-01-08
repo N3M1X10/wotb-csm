@@ -19,21 +19,27 @@ if "%adm_arg%" neq "admin" (
     echo [93m[mshta vbscript] Requesting admin rights...[0m
     mshta vbscript:CreateObject("Shell.Application"^).ShellExecute("cmd.exe","/c ""%~f0"" admin","","runas",1^)(window.close^)
     exit /b
-) else (
-if "%adm_arg%"=="admin" shift
-    echo [elevated]
-    echo.
 )
 
 
+
 :ask
-:: сброс памяти процесса
-cls
+::menu session setup
+chcp 65001>nul
 title %~nx0
 endlocal
 setlocal EnableDelayedExpansion
 
+::variable configuration
+:: применяет к игре высокий приоритет процесса при любом запуске скриптом
+:: ='' - default
+:: ='1' - enable
+set raise_priority=1
+:: var autofix
+if not defined raise_priority (set raise_priority=0)
+
 :: Отрисовка меню
+cls
 echo [101;93mМеню настройки кластеров WOTB[0m
 echo.
 echo [93mМеню управления статусом правил:[0m
@@ -50,7 +56,7 @@ echo.
 echo [93mПрочие опции:[0m
 echo [96mp / play - [92mзапустить WOTB[0m
 echo [96mk / kill - [91mЗакрыть всё связанное с WOTB[0m
-echo [96mc / clean - [93mПочистить кэш игры (+перезапуск игры)[0m
+echo [96mc / clean - [93mПочистить кэш игры (активная игра будет перезапущена)[0m
 echo [96mreset - [91mсбросить данные WOTB[0m
 echo [96ml / ping - Измерить задержку до кластеров[0m
 echo [96md / diag - Провести диагностику сети[0m
@@ -241,7 +247,7 @@ if "%errorlevel%"=="2" (goto ask)
 
 :create-rules
 cls
-choice /C "10" /m "[93m[?] Подтвердите  [36mСОЗДАНИЕ [93mправил блокировки[0m"
+choice /C "10" /m "[93m[?] Подтвердите [36mСОЗДАНИЕ [93mправил блокировки[0m"
 if "%errorlevel%"=="1" (goto create-rules-y)
 if "%errorlevel%"=="2" (goto ask)
 
@@ -250,8 +256,6 @@ set rule_description="Правило для блокирования класт�
 
 :: Удаляем все старые правила
 call :remove-rules
-:: Чистим кэш dns
-ipconfig /flushdns>nul
 
 echo.
 echo [90mПытаюсь создать правила...[0m
@@ -288,6 +292,8 @@ for /f "usebackq tokens=1,2 delims=:" %%a in ("%ranges_file%") do (
     :: Редактируем hosts
     call :edit-hosts "%%a" "block"
 )
+:: Чистим кэш dns
+ipconfig /flushdns>nul
 
 echo [90mГотово[0m
 
@@ -296,7 +302,7 @@ echo [101;93m[i] ПРОЧТИ МЕНЯ ^^!^^!^^![0m
 echo [93m[*] [36mКогда правила создадутся - они сразу заблокируют подключения по своим доменам[0m
 echo [93m[*] [36mВыбери, которые тебе нужны и разблокируй в - главном меню[0m
 echo.
-echo [93m[*] [36mОбращаю внимание, что блокировка не только - в брандмауэре, но и - в файле hosts[0m
+echo [93m[*] [36mОбращаю внимание, что блокировка производится не только в брандмауэре (IP/CIDR), но и - в файле hosts (domains)[0m
 goto endfunc
 
 
@@ -391,7 +397,12 @@ set "entry=0.0.0.0 %domain%"
 set "TH=%TEMP%\h.tmp"
 set "hosts_path=%SystemRoot%\System32\drivers\etc\hosts"
 
-attrib -r "%hosts_path%"
+if exist "%hosts_path%" (
+    attrib -r "%hosts_path%"
+) else (
+    echo [91mОшибка: Не удалось получить доступ к файлу hosts[0m
+    exit /b
+)
 
 :: Проверяем наличие домена
 findstr /L /C:"%domain%" "%hosts_path%" >nul
@@ -444,18 +455,9 @@ if "%act%"=="block" (
     set "func_title=[92m[ [93m- - - РАЗБЛОКИРОВКА КЛАСТЕРА - - -[92m ][0m"
     set rule_state=no
 )
-
 echo !func_title!
 echo.
-
-rem call :check-rules "silent"
-rem if "!errorlevel!" neq "1" (
-rem     echo [91m[i] Правила не найдены. [93mСначала создайте правила через соответствующий пункт меню.[0m
-rem     goto endfunc
-rem )
 call :check-ranges-file "silent"
-
-
 call :draw-clusters-list
 echo.
 :cluster-manager-choice
@@ -495,7 +497,6 @@ if "!status!"=="NotExist" (
 )
 
 :: Изменяем правило
-call :edit-hosts "!sel_domain!" "%act%" "silent"
 
 :: Формируем команды в одну строку, разделяя их амперсандом, netsh получит их как единый пакет для исполнения
 netsh advfirewall firewall set rule name="!sel_domain!_block_out" dir=out new enable=%rule_state% >nul 2>&1 & ^
@@ -510,13 +511,16 @@ if %errorlevel% neq 0 (
     echo !func_title!
     echo.
     call :draw-clusters-list
+    
     echo.
+    call :edit-hosts "!sel_domain!" "%act%" "silent"
     if "%act%"=="block" (
         echo [91m [▢] [93mКластер [96m!sel_domain! [93mзаблокирован^^![0m
     ) else (
-        echo [92m [~] [93mКластер [96m!sel_domain! [93mразблокирован^^![0m
+        echo [92m [[97m~[92m] [93mКластер [96m!sel_domain! [93mразблокирован^^![0m
     )
     echo.
+
 )
 goto cluster-manager-choice
 
@@ -594,7 +598,6 @@ exit /b
 cls
 echo [96m[ [93m- - - СТАТУС ПРАВИЛ БЛОКИРОВКИ - - - [96m][0m
 echo.
-call :check-rules & if "!errorlevel!" neq "1" (goto endfunc)
 call :check-ranges-file "silent"
 call :draw-clusters-list
 goto endfunc
@@ -635,7 +638,7 @@ if "%~1" neq "silent" (
             echo.
             echo [91m[^^!^^!^^!] [93mНайдено несоответствие среди правил.[0m
             echo [96mНайдены правила блокировки входящего подключения, но нет для исходящего[0m
-            echo [93m[i]  [36mПересоздайте правила в главном меню[0m
+            echo [93m[i] [36mПересоздайте правила в главном меню[0m
             echo.
             exit /b 0
         )
@@ -733,7 +736,7 @@ powershell -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command ^
         "};" ^
         "if ($tcpUsed) {" ^
             "Write-Host '';" ^
-            "Write-Host '[93m[^!] [96mБыл применён замер [93mпо TCP[96m, вероятно мы стреляли в VPN или ICMP запросы блокируются по другой причине[0m';" ^
+            "Write-Host '[91m[^!] [93mБыл применён замер [96mпо TCP[93m, вероятно мы стреляли в VPN, или ICMP-запросы блокируются по другой причине[0m';" ^
             "Write-Host '';" ^
         "}" ^
     "} finally {" ^
@@ -778,7 +781,6 @@ for /f "usebackq delims=" %%p in (`powershell -NoLogo -NoProfile -NonInteractive
     "        if ($path) {" ^
     "            $full = Get-ChildItem -Path $path -Filter $e -Recurse -EA 0 | Select-Object -ExpandProperty FullName -First 1;" ^
     "            Stop-Process -Name $n -Force -EA 0;" ^
-    "            Start-Sleep -s 1;" ^
     "            $proc | Wait-Process -EA 0;" ^
     "            if ($full) { Write-Output $full; break; }" ^
     "        }" ^
@@ -822,8 +824,12 @@ ipconfig /flushdns>nul
 :: если игра была запущена то возвращаем её назад
 if defined exeToStart (
     echo.
-    echo [93m[ Перезапуск игры... ][0m
-    start "" "!exeToStart!"
+    echo [93m[ Перезапуск игры... ([96m%exeToStart%[93m^) ][0m
+    if "%raise_priority%"=="1" (
+        start "" /high "!exeToStart!"
+    ) else (
+        start "" "!exeToStart!"
+    )
     set "exeToStart="
 )
 exit /b
@@ -840,9 +846,9 @@ if "%~1"=="entire" (
 ) else (
     echo.
     echo [94m[ [36mудаляем кэш, в корне папки [94m][0m
-    cd /d "!wotb_path!" & call :cycle-delete "*.txt;*.log;*.bk;*.dat;*.bin;*.yaml;*.archive;startupOptions.*;optionsGlobal.*" "files"
-    rem call :cycle-delete "" "folders"
-    echo.
+    cd /d "!wotb_path!" & call :cycle-delete "*.txt;*.log;startupOptions.*;dynamic_content_version.*" "files"
+    call :cycle-delete "region_cache" "folders"
+    rem echo.
     rem echo [94m[ [36mчистим кэш внутри папок [94m][0m
     rem cd /d "cache" & call :cycle-delete "" "files"
 )
@@ -900,11 +906,25 @@ echo [92m[ [93m- - - Запуск WOTB - - - [92m][0m
 echo.
 echo [90mПробую запустить либо найти игры WOTB...[0m
 powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command ^
+    "$raise_priority = %raise_priority%;" ^
     "$eof_delay = {Start-Sleep -s 1};" ^
     "$apps = @(" ^
     "    @{ name='TanksBlitz'; exe='TanksBlitz.exe'; lName='Lesta Game Center'; lExe='lgc.exe'; lProc='lgc' }," ^
     "    @{ name='WoTBlitz'; exe='wotblitz.exe'; lName='Wargaming.net Game Center'; lExe='wgc.exe'; lProc='wgc' }" ^
     ");" ^
+    "function Set-GamePriority($procName) {" ^
+    "    if ($raise_priority -ne 1) { return }" ^
+    "    Write-Host ' [*] Ожидание процесса для повышения приоритета...';" ^
+    "    $timer = 0; while($timer -lt 60) {" ^
+    "        $proc = Get-Process $procName -ErrorAction SilentlyContinue;" ^
+    "        if ($proc) {" ^
+    "            $proc.PriorityClass = 'High';" ^
+    "            Write-Host ' [i] Приоритет установлен: Высокий';" ^
+    "            return" ^
+    "        }" ^
+    "        Start-Sleep -m 500; $timer += 0.5" ^
+    "    }" ^
+    "}" ^
     "function Get-RealCasePath($path) {" ^
     "    try {" ^
     "        $file = New-Object System.IO.FileInfo($path);" ^
@@ -976,13 +996,17 @@ powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command ^
     "$foundPaths = @();" ^
     "foreach ($a in $apps) {" ^
     "    $gp = Get-GamePath $a.exe;" ^
-    "    if ($gp) { $foundPaths += [PSCustomObject]@{ Game=$a.name; Path=$gp; LName=$a.lName; LExe=$a.lExe; LProc=$a.lProc } }" ^
+    "    if ($gp) { $foundPaths += [PSCustomObject]@{ Game=$a.name; Path=$gp; LName=$a.lName; LExe=$a.lExe; LProc=$a.lProc; ExeShort=$a.exe.Replace('.exe','') } }" ^
     "}" ^
     "if ($foundPaths.Count -eq 0) { Write-Host ' [i] Игры не найдены.' -ForegroundColor Red; exit }" ^
     "$foundPaths += [PSCustomObject]@{ Game='[91m[ ОТМЕНА ]'; Path=$null };" ^
     "$sel = Show-ConsoleMenu -Title '[?] Выберите вариант стрелочками:' -Items $foundPaths;" ^
     "if ($sel -and $sel.Path) {" ^
-    "    if (Get-Process $sel.Game -ErrorAction SilentlyContinue) { Write-Host ' [i] Игра уже запущена' -ForegroundColor Yellow; &$eof_delay; exit }" ^
+    "    if (Get-Process $sel.ExeShort -ErrorAction SilentlyContinue) {" ^
+    "        Write-Host ' [i] Игра уже запущена' -ForegroundColor Yellow;" ^
+    "        Set-GamePriority $sel.ExeShort;" ^
+    "        &$eof_delay; exit" ^
+    "    }" ^
     "    $lp = Get-PathFast $sel.LExe;" ^
     "    if (-not (Get-Process $sel.LProc -ErrorAction SilentlyContinue)) {" ^
     "        if ($lp) {" ^
@@ -990,8 +1014,9 @@ powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command ^
     "            if (Wait-Launcher $sel.LProc) { Write-Host '[>] Запуск игры...' -ForegroundColor Green; Start-Process $sel.Path }" ^
     "        } else { Write-Host ' [i] Лаунчер не найден.' -ForegroundColor Red }" ^
     "    } else { Write-Host '[>] Лаунчер активен. Запуск...' -ForegroundColor Green; Start-Process $sel.Path }" ^
-    "    &$eof_delay;" ^
-    "} else { exit }"
+    "    Set-GamePriority $sel.ExeShort;" ^
+    "    &$eof_delay" ^
+    "}"
 rem goto endfunc
 goto ask
 
@@ -1005,20 +1030,24 @@ echo.
 choice /C "10" /m "[93m[?] Подтвердите [91mЗАВЕРШЕНИЕ [93mвсех процессов игры и лаунчеров. Это может вызвать сбои^![0m"
 if "!errorlevel!"=="1" (echo [90mподтверждено[0m)
 if "!errorlevel!"=="2" (goto ask)
+
 :: Список процессов для завершения
 set "array=TanksBlitz.exe;wotblitz.exe;lgc.exe;wgc.exe"
 set !array!="!array:;=" "!"
+
 echo.
 echo [90mЗавершаем процессы...[0m
+set count=0
 for %%p in (!array!) do (
     set item=%%~p
-    :: Проверяем, запущен ли процесс, чтобы не спамить ошибками
     tasklist /fi "ImageName eq !item!" 2>NUL | find /i "!item!" >NUL
     if not errorlevel 1 (
         taskkill /f /t /im !item! >nul 2>&1
         echo [90m * процесс : "!item!" - убит[0m
+        set /a count+=1
     )
 )
+if "%count%" lss "1" (echo [90m[i] Процессы не были найдены[0m) else (echo [90mГотово[0m)
 goto endfunc
 
 
