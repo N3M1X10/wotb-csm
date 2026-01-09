@@ -2,6 +2,7 @@
 chcp 65001>nul
 
 :: Source: https://github.com/N3M1X10/wotb-csm
+:: Sometimes, я пишу comments - на different языках, in this code
 
 :request-admin-rights
 set adm_arg=%1
@@ -458,6 +459,7 @@ echo.
 call :check-ranges-file "silent"
 call :draw-clusters-list
 echo.
+
 :cluster-manager-choice
 :: Формируем строку допустимых символов для choice
 set "keys=0"
@@ -473,53 +475,46 @@ for /L %%i in (1,1,%count%) do (
         )
     )
 )
-
 set "c_idx="
 choice /C:%keys% /N /M "[93m[?] Выберите номер или букву [96m(0 для выхода)[93m: "
 set /a c_idx=%ERRORLEVEL%
-
 :: Если нажали 1-й символ (это '0') - выходим
 if "%c_idx%"=="1" goto ask
-
 :: Корректируем индекс для массива (ERRORLEVEL в choice начинается с 1)
 set /a c_choice=%c_idx%-1
-
 :: Извлекаем данные по индексу
 set "sel_domain=!cluster[%c_choice%]!"
-
-:: ПРОВЕРКА: Если правило не существует
-if "!status!"=="NotExist" (
-    echo.
-    echo [91m[^^!^^!^^!] Ошибка: Правило для [96m!sel_domain! [91mне найдено в Брандмауэре.[0m
-    echo [93m[i] Сначала создайте правила через соответствующий пункт меню.[0m
-)
-
 :: Изменяем правило
-
-:: Формируем команды в одну строку, разделяя их амперсандом, netsh получит их как единый пакет для исполнения
+set rules_errorlevel=
 netsh advfirewall firewall set rule name="!sel_domain!_block_out" dir=out new enable=%rule_state% >nul 2>&1 & ^
 netsh advfirewall firewall set rule name="!sel_domain!_block_in" dir=in new enable=%rule_state% >nul 2>&1
+:: Ловим ошибки
+if "%errorlevel%" neq "0" (
+    set rules_errorlevel=1
+)
 
-:: Проверка ошибок
-if %errorlevel% neq 0 (
-    echo [90m[i] Ошибка при применении правила netsh для: "!sel_domain!"[0m
-
-) else (
-    cls
-    echo !func_title!
-    echo.
-    call :draw-clusters-list
-    
-    echo.
+cls
+echo !func_title!
+echo.
+call :draw-clusters-list
+echo.
+if "!rules_errorlevel!" lss "1" (
+    rem netsh is SUCCESS then we edit the hosts and notify
     call :edit-hosts "!sel_domain!" "%act%" "silent"
     if "%act%"=="block" (
         echo [91m [▢] [93mКластер [96m!sel_domain! [93mзаблокирован^^![0m
     ) else (
         echo [92m [[97m~[92m] [93mКластер [96m!sel_domain! [93mразблокирован^^![0m
     )
-    echo.
-
+) else (
+    rem netsh is FAILED, notify too
+    echo [91m[^^!] [93mОшибка при изменении правила брандмауэра: "[96m!sel_domain![93m"[0m
+    if "!status!"=="NotExist" (
+        echo [91m[^^!^^!^^!] Правило для [96m!sel_domain! [91mне найдено в брандмауэре[0m
+        echo [96m[i] [93mСначала создайте правила через соответствующий пункт в главном меню[0m
+    )
 )
+echo.
 goto cluster-manager-choice
 
 
