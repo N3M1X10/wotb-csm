@@ -3,23 +3,22 @@ chcp 65001>nul
 
 :: Source: https://github.com/N3M1X10/wotb-csm
 
-rem :request-admin-rights
-rem set adm_arg=%1
-rem if "%adm_arg%" == "admin" (
-rem     rem dn
-rem ) else (
-rem     echo [93m[powershell] Requesting admin rights...[0m
-rem     powershell -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command "Start-Process 'cmd.exe' -ArgumentList '/k \"\"%~f0\" admin\"' -Verb RunAs"
-rem     exit /b
-rem )
-
 :request-admin-rights
-set "adm_arg=%~1"
+set adm_arg=%1
 if "%adm_arg%" neq "admin" (
-    echo [93m[mshta vbscript] Requesting admin rights...[0m
-    mshta vbscript:CreateObject("Shell.Application"^).ShellExecute("cmd.exe","/c ""%~f0"" admin","","runas",1^)(window.close^)
+    echo [93m[powershell] Requesting admin rights...[0m
+    powershell -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command "Start-Process 'cmd.exe' -ArgumentList '/k \"\"%~f0\" admin\"' -Verb RunAs"
     exit /b
 )
+
+:: this is method that faster but its pretty old (soon vbs must be disabled by default in windows by microsoft)
+rem :request-admin-rights
+rem set "adm_arg=%~1"
+rem if "%adm_arg%" neq "admin" (
+rem     echo [93m[mshta vbscript] Requesting admin rights...[0m
+rem     mshta vbscript:CreateObject("Shell.Application"^).ShellExecute("cmd.exe","/c ""%~f0"" admin","","runas",1^)(window.close^)
+rem     exit /b
+rem )
 
 
 
@@ -34,13 +33,13 @@ setlocal EnableDelayedExpansion
 :: применяет к игре высокий приоритет процесса при любом запуске скриптом
 :: ='' - default
 :: ='1' - enable
-set raise_priority=1
+set raise_priority=
 :: var autofix
 if not defined raise_priority (set raise_priority=0)
 
 :: Отрисовка меню
 cls
-echo [101;93mМеню настройки кластеров WOTB[0m
+echo [101;93mМеню настройки игровых кластеров WOTB[0m
 echo.
 echo [93mМеню управления статусом правил:[0m
 echo [96m1 - Блокировка кластеров[0m
@@ -49,8 +48,8 @@ echo [93mРаботаем с пачкой правил:[0m
 echo [96mba - Заблокировать все кластеры[0m
 echo [96muba - Разблокировать все кластеры[0m
 echo [93mСервисные операции с правилами:[0m
-echo [96m3 - [92mСоздать [96m/ [92mОбновить [96mправила для блокировки кластеров[0m
-echo [96m4 - [91mУдалить [96mвсе правила игры в брандмауэре[0m
+echo [96m3 - [92mСоздать [96m/ [92mОбновить [96mправила для блокировки[0m
+echo [96m4 - [91mУдалить [96mвсе правила блокировок в брандмауэре и hosts[0m
 echo [96m5 - [93mОбновить [96mдиапазоны ip-адресов для блокировки[0m
 echo.
 echo [93mПрочие опции:[0m
@@ -315,11 +314,9 @@ if "%errorlevel%"=="2" (goto ask)
 
 :remove-rules
 echo.
-echo [90mПытаюсь удалить правила WOTB в брандмауэре...[0m
-
-
+echo [90mПытаюсь удалить правила блокировки кластеров WOTB в брандмауэре...[0m
 powershell -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command ^
-$r = Get-NetFirewallRule ^| Where-Object { $_.DisplayName -like 'login*.tanksblitz.*' -or $_.DisplayName -like 'login*.wotblitz.*' }; ^
+$r = Get-NetFirewallRule ^| Where-Object { $_.DisplayName -like 'login*.tanksblitz.*_block_*' -or $_.DisplayName -like 'login*.wotblitz.*_block_*' }; ^
 if ($r) { ^
     $r ^| Remove-NetFirewallRule; ^
     foreach ($rule in $r) { ^
@@ -328,7 +325,8 @@ if ($r) { ^
 } else { ^
     Write-Host '[91mПравила не найдены :([0m' ^
 }
-echo [90mПытаюсь удалить правила WOTB в hosts...[0m
+echo.
+echo [90mПытаюсь удалить записи блокировки кластеров WOTB в hosts...[0m
 call :check-domains-file "silent"
 for /f "usebackq tokens=1,2 delims=:" %%a in ("!domains_file!") do (
     call :edit-hosts "%%a" "unblock"
@@ -667,6 +665,9 @@ if "!errorlevel!" lss "1" (
 )
 call :check-domains-file
 
+call :check-routing-services
+call :check-vpn-adapters
+
 echo.
 echo [94m[ [36m- - - Запускаю проверку - - - [94m][36m
 echo.
@@ -737,10 +738,13 @@ powershell -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command ^
         "if ($tcpUsed) {" ^
             "Write-Host '';" ^
             "Write-Host '[91m[^!] [93mБыл применён замер [96mпо TCP[93m, вероятно мы стреляли в VPN, или ICMP-запросы блокируются по другой причине[0m';" ^
-            "Write-Host '';" ^
+            "Write-Host '[93m[^!] [91mВ таком случае результат замеров наверняка искажён^![0m';" ^
+            "Write-Host '[96m[^>] [93mПросьба убедиться что службы подобные VPN, либо другое подобное управление сетевым трафиком - [96mотключено[0m';" ^
+            "Write-Host '[36m[^>] Затем, перезапустите эту проверку, для более точного результата[0m';" ^
         "}" ^
     "} finally {" ^
         "if ($backup) {" ^
+            "Write-Host '';" ^
             "Write-Host 'Возврат блокировок...';" ^
             "Enable-NetFirewallRule -Name $backup -ErrorAction SilentlyContinue;" ^
         "}" ^
@@ -800,22 +804,18 @@ rem echo.
 rem echo [90mcis: "!cis_wotb_path!"[0m
 rem echo [90meu: "!eu_wotb_path!"[0m
 
-:: папка cis игры
-if not exist "!cis_wotb_path!" (
-    echo.
-    echo [91m[^^!] Ошибка доступа. [36mПапка кэша игры (tanksblitz^) не найдена
-) else (
-    set title=Tanks Blitz
-    call :wotb-cleaner "%~1" "!cis_wotb_path!"
-)
-
-:: папка eu игры
-if not exist "!eu_wotb_path!" (
-    echo.
-    echo [91m[^^!] Ошибка доступа. [36mПапка кэша игры (wotblitz^) не найдена
-) else (
-    set title=WoT Blitz
-    call :wotb-cleaner "%~1" "!eu_wotb_path!"
+:: проверка наличия папок с кэшем
+:: Формат: "путь;заголовок;имя_для_ошибки"
+for %%a in ("!cis_wotb_path!;Tanks Blitz;tanksblitz", "!eu_wotb_path!;WoT Blitz;wotblitz") do (
+    for /f "tokens=1,2,3 delims=;" %%b in (%%a) do (
+        if not exist "%%b" (
+            echo.
+            echo [91m[^^!] [93mОшибка доступа. [90mПапка кэша игры (%%d^) не найдена[0m
+        ) else (
+            set "title=%%c"
+            call :wotb-cleaner "%~1" "%%b"
+        )
+    )
 )
 
 :: кэш dns
@@ -869,7 +869,7 @@ set "type=%~2"
 set !array!="!array:;=" "!"
 ::array check
 if not defined array (
-    echo [91m[^^!] Ошибка. Файлы в вызове не были определены (а что удаляем то?^)[0m
+    echo [91m[^^!^^!^^!] Ошибка. Файлы в вызове не были определены (а что удаляем то?^)[0m
     exit/b
 )
 ::type check
@@ -878,7 +878,7 @@ if "!type!"=="files" (
 ) else if "!type!"=="folders" (
     echo [100;30m[ удаляем папки ][0m
 ) else (
-    echo [91m[^^!] Ошибка. Не удалось определить тип данных в вызове ("!type!" - не знаю: папки это или файлы^)[0m
+    echo [91m[^^!^^!^^!] Ошибка. Не удалось определить тип данных в вызове ("!type!" - не знаю: папки это или файлы^)[0m
     exit /b
 )
 ::cleaner
@@ -1058,26 +1058,37 @@ echo [96m[ [93m- - - Сетевая диагностика - - - [96m][0m
 echo.
 echo [93m[i] [36mЭтот процесс может занять некоторое время[0m
 
-:: VPN
+call :check-routing-services
+call :check-vpn-adapters
+call :network-diag-via-pwsh
+
+:end-of-net-diag
 echo.
-set count=0
-set "array=VPN;Tunnel;WARP;cFosSpeed;zapret"
+echo [92mДиагностика завершена[0m
+echo [0m[i] Каждый пункт без "ok" означает - предупреждение. Это означает, что вы можете воспользоваться поиском в интернете, для детального решения каждой сетевой проблемы со стороны вашей системы[0m
+exit /b
+
+
+:check-routing-services
+echo.
+set "count=0"
+set "array=VPN;tun;tap;WARP;cFosSpeed;WinDivert;zapret;winws"
 set !array!="!array:;=" "!"
 for %%a in (!array!) do (
     for /f "tokens=*" %%i in ('sc query ^| findstr /I "%%a"') do (
         set /a "count+=1"
     )
 )
-if "!count!" geq "1" (
-    echo [91m[^^!] [93mОбнаружены потенциальные службы, которые могут влиять на пинг, если они в активном состоянии:
+if "%count%" geq "1" (
+    echo [91m[^^!] [93mОбнаружены потенциальные службы, которые могут влиять на пинг (и на все тесты^), если они в активном состоянии:
     for %%a in (!array!) do (
         sc query | findstr /I "%%a">nul && (
-            echo [90mFound with: "%%a"[96m
+            echo [90mFound item with: "%%a"[96m
             sc query | findstr /I "%%a"
         )
     )
 ) else (
-    echo [92m[ok][90m VPN
+    echo [92m[ok][90m Routing Services
 )
 set count=
 
@@ -1085,20 +1096,38 @@ set count=
 echo.
 reg query "HKCU\Software\Microsoft\Windows\CurrentVersion\Internet Settings" /v ProxyEnable | findstr "0x1" >nul
 if "!errorlevel!"=="0" (
-    echo [91m[^^!] Включен системный прокси-сервер. [93mЭто может исказить пинг[0m
+    echo [91m[^^!] [93mВключен системный прокси-сервер. Это может исказить пинг[0m
 ) else (
     echo [92m[ok][90m system proxy
 )
+exit/b
 
-:: Killer Network
+
+:check-vpn-adapters
 echo.
-tasklist /FI "IMAGENAME eq KillerNetwork.exe" 2>nul | findstr /I "KillerNetwork" >nul
-if "!errorlevel!"=="0" (
-    echo [91m[^^!] Обнаружено ПО Killer Network. Это может влиять на приоритет трафика[0m
-) else (
-    echo [92m[ok][90m killer network
+set "count=0"
+set "array=vpn;warp;wireguard;wg;awg;tunnel;tun;tap;wintun;tailscale;zerotier;openvpn;sing-box"
+for %%i in (!array!) do (
+    netsh interface show interface | findstr /I "%%i" | findstr /i "Enabled">nul && (
+        set /a count+=1
+    )
 )
+if "%count%" geq "1" (
+    echo [91m[^^!] [93mОбнаружены активные VPN-адаптеры. Они могут влиять на пинг и на тесты:
+    for %%i in (!array!) do (
+        netsh interface show interface | findstr /I "%%i" | findstr /i "Enabled">nul && (
+            echo [90mFound item matching: "%%i"
+            echo  {Admin State} / {State} / {Type} / {Interface Name} [96m
+            netsh interface show interface | findstr /I "%%i" | findstr /i "Enabled"
+        )
+    )
+) else (
+    echo [92m[ok] [90mNo VPN Adapters found
+)
+exit/b
 
+
+:network-diag-via-pwsh
 echo.&echo [94m[ [36m- - - Перехожу к powershell проверкам - - - [94m]&echo [0m[90m
 powershell -NoProfile -ExecutionPolicy Bypass -Command ^
  "$ErrorActionPreference = 'SilentlyContinue';" ^
@@ -1169,12 +1198,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -Command ^
  "" ^
  "$cpu = (Get-CimInstance Win32_Processor).LoadPercentage;" ^
  "if ($cpu -gt 80) { W-Er ('CPU Load: ' + $cpu + '%%') } else { W-Ok ('CPU Load: ' + $cpu + '%%') };"
-
-:end-of-net-diag
-echo.
-echo [92mДиагностика завершена[0m
-echo [0m[i] Каждый пункт без "ok" означает - предупреждение. Это означает, что вы можете воспользоваться поиском в интернете, для детального решения каждой сетевой проблемы со стороны вашей системы[0m
-exit /b
+exit/b
 
 
 :: end of a function
