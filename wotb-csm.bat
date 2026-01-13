@@ -12,15 +12,6 @@ if "%adm_arg%" neq "admin" (
     exit /b
 )
 
-:: this is method that faster but its pretty old (soon vbs must be disabled by default in windows by microsoft)
-rem :request-admin-rights
-rem set "adm_arg=%~1"
-rem if "%adm_arg%" neq "admin" (
-rem     echo [93m[mshta vbscript] Requesting admin rights...[0m
-rem     mshta vbscript:CreateObject("Shell.Application"^).ShellExecute("cmd.exe","/c ""%~f0"" admin","","runas",1^)(window.close^)
-rem     exit /b
-rem )
-
 
 
 :ask
@@ -834,6 +825,10 @@ exit /b
 :wotb-cleaner
 echo.&echo [104;93m[ !title! ][0m
 set "wotb_path=%~2"
+
+if "%wotb_path:~-1%"=="\" set "target_folder=%wotb_path:~0,-1%"
+attrib -r "!target_folder!" /S /D
+
 if "%~1"=="entire" (
     rd /q /s "!wotb_path!"
     echo.
@@ -841,8 +836,9 @@ if "%~1"=="entire" (
 ) else (
     echo.
     echo [94m[ [36mудаляем кэш, в корне папки [94m][0m
-    cd /d "!wotb_path!" & call :cycle-delete "*.txt;*.log;startupOptions.*;dynamic_content_version.*" "files"
-    call :cycle-delete "region_cache" "folders"
+    cd /d "!wotb_path!"
+    call :cycle-delete "*.txt;*.log;dynamic_content_version.*" "files"
+    call :cycle-delete "region_cache;cef_data" "folders"
     rem echo.
     rem echo [94m[ [36mчистим кэш внутри папок [94m][0m
     rem cd /d "cache" & call :cycle-delete "" "files"
