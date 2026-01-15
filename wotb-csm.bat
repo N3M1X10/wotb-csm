@@ -15,11 +15,13 @@ if "%adm_arg%" neq "admin" (
 
 
 :ask
+:session-setup
 ::menu session setup
 chcp 65001>nul
 title %~nx0
 endlocal
 setlocal EnableDelayedExpansion
+
 
 ::variable configuration
 :: применяет к игре высокий приоритет процесса при любом запуске скриптом
@@ -28,6 +30,15 @@ setlocal EnableDelayedExpansion
 set raise_priority=
 :: var autofix
 if not defined raise_priority (set raise_priority=0)
+
+::constants
+:: path to current documents dir
+for /f "tokens=2*" %%a in ('reg query "HKCU\Software\Microsoft\Windows\CurrentVersion\Explorer\User Shell Folders" /v Personal') do set "ActualDocs=%%b"
+for /f "delims=" %%i in ('echo %ActualDocs%') do set "docs=%%i"
+:: paths to games cache folders
+set "cis_wotb_path=!docs!\TanksBlitz\"
+set "eu_wotb_path=%LOCALAPPDATA%\wotblitz\DAVAProject\"
+
 
 :: Отрисовка меню
 cls
@@ -779,17 +790,6 @@ for /f "usebackq delims=" %%p in (`powershell -NoLogo -NoProfile -NonInteractive
 
 echo [90mЗаклинаю разработчиков игры, чтобы начали оптимизировать её...[0m
 echo [90mИщу папки с кэшем игр...[0m
-:: Извлекаем путь к Документам из реестра
-for /f "tokens=2*" %%a in ('reg query "HKCU\Software\Microsoft\Windows\CurrentVersion\Explorer\User Shell Folders" /v Personal') do set "ActualDocs=%%b"
-:: Разворачиваем переменные среды (если путь содержит %USERPROFILE%)
-for /f "delims=" %%i in ('echo %ActualDocs%') do set "docs=%%i"
-
-set "cis_wotb_path=!docs!\TanksBlitz\"
-set "eu_wotb_path=%LOCALAPPDATA%\wotblitz\DAVAProject\"
-rem echo.
-rem echo [90mcis: "!cis_wotb_path!"[0m
-rem echo [90meu: "!eu_wotb_path!"[0m
-
 :: проверка наличия папок с кэшем
 :: Формат: "путь;заголовок;имя_для_ошибки"
 for %%a in ("!cis_wotb_path!;Tanks Blitz;tanksblitz", "!eu_wotb_path!;WoT Blitz;wotblitz") do (
@@ -827,12 +827,13 @@ echo.&echo [104;93m[ !title! ][0m
 set "wotb_path=%~2"
 
 if "%wotb_path:~-1%"=="\" set "target_folder=%wotb_path:~0,-1%"
+echo [90mСнимаем атрибут "только для чтения" с папки: "%target_folder%"...[0m
 attrib -r "!target_folder!" /S /D
 
 if "%~1"=="entire" (
     rd /q /s "!wotb_path!"
     echo.
-    echo [90mПолный сброс завершён
+    echo [90mПолный сброс завершён[0m
 ) else (
     echo.
     echo [94m[ [36mудаляем кэш, в корне папки [94m][0m
@@ -905,12 +906,12 @@ powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command ^
     ");" ^
     "function Set-GamePriority($procName) {" ^
     "    if ($raise_priority -ne 1) { return }" ^
-    "    Write-Host ' [*] Ожидание процесса для повышения приоритета...';" ^
+    "    Write-Host '[*] Ожидание процесса для повышения приоритета...' -fore DarkGray;" ^
     "    $timer = 0; while($timer -lt 60) {" ^
     "        $proc = Get-Process $procName -ErrorAction SilentlyContinue;" ^
     "        if ($proc) {" ^
     "            $proc.PriorityClass = 'High';" ^
-    "            Write-Host ' [i] Приоритет установлен: Высокий';" ^
+    "            Write-Host '[i] Приоритет установлен: Высокий' -fore darkgreen;" ^
     "            return" ^
     "        }" ^
     "        Start-Sleep -m 500; $timer += 0.5" ^
@@ -931,15 +932,25 @@ powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command ^
     "    } catch {}" ^
     "    return $path" ^
     "}" ^
-    "function Get-PathFast($targetExe) {" ^
-    "    $regPaths = @('HKCU:\Software\Classes\Local Settings\Software\Microsoft\Windows\Shell\MuiCache', 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\FeatureUsage\AppSwitched', 'HKCU:\Software\Microsoft\Windows NT\CurrentVersion\AppCompatFlags\Compatibility Assistant\Store', 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\*', 'HKLM:\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\*', 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\*');" ^
-    "    $pattern = '[A-Z]:\\.*' + [regex]::Escape($targetExe);" ^
-    "    foreach ($root in $regPaths) {" ^
-    "        $p = Get-ItemProperty $root -ErrorAction SilentlyContinue; if (-not $p) { continue }" ^
+    "function Get-PathFast($t) {" ^
+    "    $r = @(" ^
+    "        'HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\FeatureUsage\AppBadgeUpdated'," ^
+    "        'HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\FeatureUsage\AppSwitched'," ^
+    "        'HKCU:\Software\Classes\Local Settings\Software\Microsoft\Windows\Shell\MuiCache'," ^
+    "        'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\*'," ^
+    "        'HKLM:\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\*'" ^
+    "    );" ^
+    "    foreach ($b in $r) {" ^
+    "        $p = Get-ItemProperty $b -ErrorAction SilentlyContinue; if (-not $p) { continue };" ^
     "        foreach ($prop in $p.PSObject.Properties) {" ^
-    "            $val = if ($prop.Value -is [string]) { $prop.Value } else { '' };" ^
-    "            if ($prop.Name -match $pattern -or $val -match $pattern) {" ^
-    "                $f = $matches[0]; if (Test-Path $f) { return Get-RealCasePath $f }" ^
+    "            $n = [string]$prop.Name; $v = [string]$prop.Value;" ^
+    "            $found = $null;" ^
+    "            if ($n -like ('*' + $t + '*')) { $found = $n } elseif ($v -like ('*' + $t + '*')) { $found = $v };" ^
+    "            if ($found) {" ^
+    "                $clean = $found -replace '\.FriendlyAppName$|\.ApplicationCompany$|(?<=\.exe).*', '' -replace ('[' + [char]34 + ']'), '';" ^
+    "                if ($clean -match '[A-Z]:\\.*' + [Regex]::Escape($t)) {" ^
+    "                    $res = $matches[0]; if (Test-Path $res) { return Get-RealCasePath $res }" ^
+    "                }" ^
     "            }" ^
     "        }" ^
     "    }" ^
@@ -950,9 +961,9 @@ powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command ^
     "    $drives = [System.IO.DriveInfo]::GetDrives() | Where-Object { $_.DriveType -eq 'Fixed' } | Select-Object -ExpandProperty RootDirectory;" ^
     "    foreach ($d in $drives) {" ^
     "        $rootFile = Get-ChildItem -Path $d -Filter $exe -ErrorAction SilentlyContinue; if ($rootFile) { return $rootFile.FullName }" ^
-    "        $subDirs = Get-ChildItem -Path $d -Directory -ErrorAction SilentlyContinue | Where-Object { $_.Attributes -notlike '*ReparsePoint*' };" ^
+    "        $subDirs = Get-ChildItem -Path $d -Directory -ErrorAction SilentlyContinue | Where-Object { $_.Name -notmatch 'Windows|SystemVolumeInformation|\$Recycle.Bin|AppData' };" ^
     "        foreach ($sd in $subDirs) {" ^
-    "            $f = Get-ChildItem -Path $sd.FullName -Filter $exe -Recurse -ErrorAction SilentlyContinue | Select-Object -ExpandProperty FullName -First 1;" ^
+    "            $f = Get-ChildItem -Path $sd.FullName -Filter $exe -Recurse -Depth 3 -ErrorAction SilentlyContinue | Select-Object -ExpandProperty FullName -First 1;" ^
     "            if ($f) { return $f }" ^
     "        }" ^
     "    }" ^
@@ -969,13 +980,13 @@ powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command ^
     "    }; return $false" ^
     "}" ^
     "function Show-ConsoleMenu($Title, $Items) {" ^
-    "    Write-Host ''; Write-Host $Title -ForegroundColor Yellow; Write-Host '';" ^
+    "    Write-Host ''; Write-Host $Title -fore Yellow; Write-Host '';" ^
     "    $startPos = $Host.UI.RawUI.CursorPosition; $idx = 0;" ^
     "    while ($true) {" ^
     "        $Host.UI.RawUI.CursorPosition = $startPos;" ^
     "        for ($i = 0; $i -lt $Items.Count; $i++) {" ^
-    "            $curr = $Items[$i]; $text = if($curr.Path){ $curr.Game + ' (' + $curr.Path + ')' } else { $curr.Game };" ^
-    "            if ($i -eq $idx) { Write-Host '»' -NoNewline -ForegroundColor Yellow; Write-Host '[96m'$text } " ^
+    "            $curr = $Items[$i]; $text = if($curr.Path){ $curr.Game + ' [' + $curr.LName + ']' + ' (' + $curr.Path + ')' } else { $curr.Game };" ^
+    "            if ($i -eq $idx) { Write-Host '»' -NoNewline -fore Yellow; Write-Host '[96m'$text } " ^
     "            else { Write-Host ' ' -NoNewline; Write-Host '[36m'$text }" ^
     "        }" ^
     "        $key = $Host.UI.RawUI.ReadKey('NoEcho,IncludeKeyDown');" ^
@@ -984,29 +995,37 @@ powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command ^
     "        elseif ($key.VirtualKeyCode -eq 13) { Write-Host ''; return $Items[$idx] }" ^
     "    }" ^
     "}" ^
+    "Write-Host '';" ^
+    "Write-Host '[*] Пробую найти пути игр в реестре' -fore yellow;" ^
     "$foundPaths = @();" ^
     "foreach ($a in $apps) {" ^
+    "    Write-Host ' [*]' $a.name -fore DarkGray -nonewline;" ^
     "    $gp = Get-GamePath $a.exe;" ^
     "    if ($gp) { $foundPaths += [PSCustomObject]@{ Game=$a.name; Path=$gp; LName=$a.lName; LExe=$a.lExe; LProc=$a.lProc; ExeShort=$a.exe.Replace('.exe','') } }" ^
     "}" ^
-    "if ($foundPaths.Count -eq 0) { Write-Host ' [i] Игры не найдены.' -ForegroundColor Red; exit }" ^
+    "if ($foundPaths.Count -eq 0) { Write-Host ' [i] Игры не найдены.' -fore Red; exit }" ^
     "$foundPaths += [PSCustomObject]@{ Game='[91m[ ОТМЕНА ]'; Path=$null };" ^
+    "Write-Host '';" ^
     "$sel = Show-ConsoleMenu -Title '[?] Выберите вариант стрелочками:' -Items $foundPaths;" ^
     "if ($sel -and $sel.Path) {" ^
     "    if (Get-Process $sel.ExeShort -ErrorAction SilentlyContinue) {" ^
-    "        Write-Host ' [i] Игра уже запущена' -ForegroundColor Yellow;" ^
+    "        Write-Host ' [i] Игра уже запущена' -fore Yellow;" ^
     "        Set-GamePriority $sel.ExeShort;" ^
     "        &$eof_delay; exit" ^
     "    }" ^
     "    $lp = Get-PathFast $sel.LExe;" ^
     "    if (-not (Get-Process $sel.LProc -ErrorAction SilentlyContinue)) {" ^
-    "        if ($lp) {" ^
-    "            Write-Host ('[>] Запуск лаунчера ' + $sel.LName + '...') -ForegroundColor Cyan; Start-Process $lp;" ^
-    "            if (Wait-Launcher $sel.LProc) { Write-Host '[>] Запуск игры...' -ForegroundColor Green; Start-Process $sel.Path }" ^
-    "        } else { Write-Host ' [i] Лаунчер не найден.' -ForegroundColor Red }" ^
-    "    } else { Write-Host '[>] Лаунчер активен. Запуск...' -ForegroundColor Green; Start-Process $sel.Path }" ^
+    "        if ($lp) { " ^
+    "            Write-Host '[>] Запуск лаунчера...' -fore Cyan; " ^
+    "            Start-Process $lp; " ^
+    "            if (Wait-Launcher $sel.LProc) { Write-Host ' [+] Лаунчер скрыт' -fore DarkGray } " ^
+    "        } else { Write-Host '[^!] Лаунчер не найден, пробую запуск напрямую' -fore yellow } " ^
+    "    }" ^
+    "    Write-Host '[>] Запуск игры...' -fore Green;" ^
+    "    Start-Process $sel.Path;" ^
     "    Set-GamePriority $sel.ExeShort;" ^
-    "    &$eof_delay" ^
+    "    Write-Host '[OK] Готово';" ^
+    "    &$eof_delay;" ^
     "}"
 rem goto endfunc
 goto ask
