@@ -804,6 +804,18 @@ for %%a in ("!cis_wotb_path!;Tanks Blitz;tanksblitz", "!eu_wotb_path!;WoT Blitz;
     )
 )
 
+set "tar=!docs!\packs"
+if exist "!tar!" (
+    echo.
+    echo [36mНашёл папку "packs"[0m
+    echo [90m[ Пробую удалить данные о последнем сервере игры (!tar!^) ][0m
+
+    cd /d "!tar!"
+    call :cycle-delete "*footer*" "files"
+) else (
+    rem echo [90mНе нашёл папку "packs"[0m
+)
+
 :: кэш dns
 ipconfig /flushdns>nul
 
@@ -826,9 +838,9 @@ exit /b
 echo.&echo [104;93m[ !title! ][0m
 set "wotb_path=%~2"
 
-if "%wotb_path:~-1%"=="\" set "target_folder=%wotb_path:~0,-1%"
-echo [90mСнимаем атрибут "только для чтения" с папки: "%target_folder%"...[0m
-attrib -r "!target_folder!" /S /D
+rem if "%wotb_path:~-1%"=="\" set "target_folder=%wotb_path:~0,-1%"
+rem echo [90mСнимаем атрибут "только для чтения" с папки: "%target_folder%"...[0m
+rem attrib -r "!target_folder!" /S /D
 
 if "%~1"=="entire" (
     rd /q /s "!wotb_path!"
@@ -838,11 +850,12 @@ if "%~1"=="entire" (
     echo.
     echo [94m[ [36mудаляем кэш, в корне папки [94m][0m
     cd /d "!wotb_path!"
-    call :cycle-delete "*.txt;*.log;dynamic_content_version.*" "files"
+    call :cycle-delete "*.txt;*.log;" "files"
     call :cycle-delete "region_cache;cef_data" "folders"
     rem echo.
     rem echo [94m[ [36mчистим кэш внутри папок [94m][0m
     rem cd /d "cache" & call :cycle-delete "" "files"
+    rem cd /d "cache" & call :cycle-delete "localizations;dynamicContentLocalizations" "folders"
 )
 
 :: [заметки]
