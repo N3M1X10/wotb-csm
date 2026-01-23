@@ -690,21 +690,21 @@ powershell -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command ^
                 "$results = @();" ^
                 "$note = '';" ^
                 "$usedTcpInLoop = $false;" ^
-                "for($i=0; $i -lt 2; $i++) {" ^
-                    "$sw = New-Object System.Diagnostics.Stopwatch;" ^
-                    "$client = New-Object System.Net.Sockets.TcpClient;" ^
+                "$pinger = New-Object System.Net.NetworkInformation.Ping;" ^
+                "$sw = New-Object System.Diagnostics.Stopwatch;" ^
+                "for($i=0; $i -lt 4; $i++) {" ^
                     "try {" ^
-                        "$reply = $pinger.Send($d, 1000);" ^
+                        "$reply = $pinger.Send($d, 800);" ^
                         "if ($reply.Status -eq 'Success' -and $reply.RoundtripTime -gt 0) {" ^
                             "$results += $reply.RoundtripTime;" ^
                             "continue;" ^
                         "}" ^
-                    "} catch {}" ^
-                    "$pinger = New-Object System.Net.NetworkInformation.Ping;" ^
+                    "} catch { $sw.Stop() }" ^
+                    "$client = New-Object System.Net.Sockets.TcpClient;" ^
+                    "$sw.Restart();" ^
                     "try {" ^
-                        "$sw.Start();" ^
                         "$connectTask = $client.ConnectAsync($d, 443);" ^
-                        "$connectTask.Wait(2000) | Out-Null;" ^
+                        "$connectTask.Wait(800) | Out-Null;" ^
                         "$sw.Stop();" ^
                         "if ($client.Connected) {" ^
                             "$results += $sw.Elapsed.TotalMilliseconds;" ^
@@ -713,9 +713,10 @@ powershell -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command ^
                             "$usedTcpInLoop = $true;" ^
                             "continue;" ^
                         "}" ^
-                    "} catch {}" ^
+                    "} catch { $sw.Stop() }" ^
                 "}" ^
-                "if ($results.Count -gt 0) {" ^
+                "if ($results.Count -gt 1) {" ^
+                    "$results = $results | Sort-Object | Select-Object -First ($results.Count - 1);" ^
                     "$avg = ($results | Measure-Object -Average).Average;" ^
                     "$displayMs = if ($avg -lt 1) { '<1' } else { [Math]::Round($avg).ToString() };" ^
                     "$c = if ($avg -lt 25) { '[92m' } elseif ($avg -lt 100) { '[93m' } else { '[91m' };" ^
