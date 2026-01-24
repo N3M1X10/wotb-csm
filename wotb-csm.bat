@@ -961,7 +961,9 @@ powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command ^
     "        'HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\FeatureUsage\AppSwitched'," ^
     "        'HKCU:\Software\Classes\Local Settings\Software\Microsoft\Windows\Shell\MuiCache'," ^
     "        'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\*'," ^
-    "        'HKLM:\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\*'" ^
+    "        'HKLM:\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\*'," ^
+    "        'HKCU:\Software\Microsoft\Windows NT\CurrentVersion\AppCompatFlags\Compatibility Assistant\Store'," ^
+    "        'HKCU:\Software\Classes\Applications\' + $t + '\shell\open\command'" ^
     "    );" ^
     "    foreach ($b in $r) {" ^
     "        $p = Get-ItemProperty $b -ErrorAction SilentlyContinue; if (-not $p) { continue };" ^
@@ -984,9 +986,9 @@ powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command ^
     "    $drives = [System.IO.DriveInfo]::GetDrives() | Where-Object { $_.DriveType -eq 'Fixed' } | Select-Object -ExpandProperty RootDirectory;" ^
     "    foreach ($d in $drives) {" ^
     "        $rootFile = Get-ChildItem -Path $d -Filter $exe -ErrorAction SilentlyContinue; if ($rootFile) { return $rootFile.FullName }" ^
-    "        $subDirs = Get-ChildItem -Path $d -Directory -ErrorAction SilentlyContinue | Where-Object { $_.Name -notmatch 'Windows|SystemVolumeInformation|\$Recycle.Bin|AppData' };" ^
+    "        $subDirs = Get-ChildItem -Path $d -Directory -ErrorAction SilentlyContinue | Where-Object { $_.Name -notmatch '.*|Windows|WINDOWS|SystemVolumeInformation|\$WinREAgent|\$Recycle.Bin|AppData' };" ^
     "        foreach ($sd in $subDirs) {" ^
-    "            $f = Get-ChildItem -Path $sd.FullName -Filter $exe -Recurse -Depth 3 -ErrorAction SilentlyContinue | Select-Object -ExpandProperty FullName -First 1;" ^
+    "            $f = Get-ChildItem -Path $sd.FullName -Filter $exe -Recurse -Depth 2 -ErrorAction SilentlyContinue | Select-Object -ExpandProperty FullName -First 1;" ^
     "            if ($f) { return $f }" ^
     "        }" ^
     "    }" ^
